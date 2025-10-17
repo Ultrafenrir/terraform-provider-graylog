@@ -1,0 +1,1 @@
+# Graylog Terraform Provider — skeleton (v0.1.0)\n
