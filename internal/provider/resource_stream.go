@@ -7,6 +7,7 @@ import (
 
 	"github.com/Ultrafenrir/terraform-provider-graylog/internal/client"
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -80,6 +81,12 @@ func (r *streamResource) Configure(_ context.Context, req resource.ConfigureRequ
 func (r *streamResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var data streamModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	// Runtime validation
+	resp.Diagnostics.Append(validateStream(&data)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -173,6 +180,12 @@ func (r *streamResource) Update(ctx context.Context, req resource.UpdateRequest,
 		return
 	}
 
+	// Runtime validation
+	resp.Diagnostics.Append(validateStream(&data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
 	// Apply timeout
 	updateTimeout, diags := data.Timeouts.Update(ctx, 5*time.Minute)
 	resp.Diagnostics.Append(diags...)
@@ -218,6 +231,28 @@ func (r *streamResource) Update(ctx context.Context, req resource.UpdateRequest,
 		}
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+}
+
+// validateStream performs basic checks for required fields and rule contents.
+func validateStream(m *streamModel) (d diag.Diagnostics) {
+	if m.Title.IsNull() || m.Title.IsUnknown() || m.Title.ValueString() == "" {
+		d.AddAttributeError(path.Root("title"), "Invalid title", "Attribute 'title' must be a non-empty string.")
+	}
+	// Validate rules
+	for i, r := range m.Rules {
+		if r.Field.IsNull() || r.Field.IsUnknown() || r.Field.ValueString() == "" {
+			d.AddAttributeError(path.Root("rule").AtListIndex(i).AtName("field"), "Invalid rule field", "Each rule must have non-empty 'field'.")
+		}
+		if r.Value.IsNull() || r.Value.IsUnknown() || r.Value.ValueString() == "" {
+			d.AddAttributeError(path.Root("rule").AtListIndex(i).AtName("value"), "Invalid rule value", "Each rule must have non-empty 'value'.")
+		}
+		if r.Type.IsNull() || r.Type.IsUnknown() {
+			d.AddAttributeError(path.Root("rule").AtListIndex(i).AtName("type"), "Invalid rule type", "Each rule must specify 'type' as a non-negative integer.")
+		} else if r.Type.ValueInt64() < 0 {
+			d.AddAttributeError(path.Root("rule").AtListIndex(i).AtName("type"), "Invalid rule type", "Rule 'type' must be >= 0.")
+		}
+	}
+	return
 }
 
 func (r *streamResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {

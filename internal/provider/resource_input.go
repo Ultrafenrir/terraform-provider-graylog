@@ -35,7 +35,7 @@ func (r *inputResource) Metadata(_ context.Context, _ resource.MetadataRequest, 
 
 func (r *inputResource) Schema(ctx context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Version:     3,
+		Version:     4,
 		Description: "Manages a Graylog input resource. Compatible with Graylog v5, v6, and v7.\n- Supports all Kafka input types and settings via flexible configuration.\n- Supports managing input extractors.",
 		Attributes: map[string]schema.Attribute{
 			"id":    schema.StringAttribute{Computed: true, Description: "The unique identifier of the input"},
@@ -65,6 +65,29 @@ func (r *inputResource) Schema(ctx context.Context, _ resource.SchemaRequest, re
 	}
 }
 
+// validateInput performs runtime validation of the input model and appends diagnostics on issues.
+func validateInput(ctx context.Context, data *inputModel) (diags diag.Diagnostics) {
+	if data.Title.IsNull() || data.Title.IsUnknown() || data.Title.ValueString() == "" {
+		diags.AddAttributeError(path.Root("title"), "Invalid title", "Attribute 'title' must be a non-empty string.")
+	}
+	if data.Type.IsNull() || data.Type.IsUnknown() || data.Type.ValueString() == "" {
+		diags.AddAttributeError(path.Root("type"), "Invalid type", "Attribute 'type' must be a non-empty string with a Graylog input class name.")
+	}
+	// Cross-field: global/node
+	if !data.Global.IsUnknown() && !data.Global.IsNull() && !data.Global.ValueBool() {
+		if data.Node.IsNull() || data.Node.IsUnknown() || data.Node.ValueString() == "" {
+			diags.AddAttributeError(path.Root("node"), "Missing node for non-global input", "When 'global' is false, 'node' must be specified with a non-empty node ID.")
+		}
+	}
+	// Extractors: if provided, must not be an explicitly empty list
+	if !data.Extractors.IsNull() && !data.Extractors.IsUnknown() {
+		if len(data.Extractors.Elements()) == 0 {
+			diags.AddAttributeWarning(path.Root("extractors"), "Empty extractors list", "The 'extractors' list is provided but empty; it will have no effect.")
+		}
+	}
+	return
+}
+
 func (r *inputResource) Configure(_ context.Context, req resource.ConfigureRequest, _ *resource.ConfigureResponse) {
 	if req.ProviderData == nil {
 		return
@@ -75,6 +98,12 @@ func (r *inputResource) Configure(_ context.Context, req resource.ConfigureReque
 func (r *inputResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var data inputModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	// Runtime validation
+	resp.Diagnostics.Append(validateInput(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -187,6 +216,12 @@ func (r *inputResource) Read(ctx context.Context, req resource.ReadRequest, resp
 func (r *inputResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
 	var data inputModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	// Runtime validation
+	resp.Diagnostics.Append(validateInput(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}

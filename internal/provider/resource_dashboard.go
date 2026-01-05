@@ -7,6 +7,7 @@ import (
 
 	"github.com/Ultrafenrir/terraform-provider-graylog/internal/client"
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -51,6 +52,12 @@ func (r *dashboardResource) Configure(_ context.Context, req resource.ConfigureR
 func (r *dashboardResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var data dashboardModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	// Runtime validation
+	resp.Diagnostics.Append(validateDashboard(&data)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -103,6 +110,12 @@ func (r *dashboardResource) Update(ctx context.Context, req resource.UpdateReque
 		return
 	}
 
+	// Runtime validation
+	resp.Diagnostics.Append(validateDashboard(&data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
 	updateTimeout, diags := data.Timeouts.Update(ctx, 5*time.Minute)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
@@ -120,6 +133,19 @@ func (r *dashboardResource) Update(ctx context.Context, req resource.UpdateReque
 		return
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+}
+
+// validateDashboard: title required; description soft length limit (2048 chars warning)
+func validateDashboard(m *dashboardModel) (d diag.Diagnostics) {
+	if m.Title.IsNull() || m.Title.IsUnknown() || m.Title.ValueString() == "" {
+		d.AddAttributeError(path.Root("title"), "Invalid title", "Attribute 'title' must be a non-empty string.")
+	}
+	if !m.Description.IsNull() && !m.Description.IsUnknown() {
+		if len(m.Description.ValueString()) > 2048 {
+			d.AddAttributeWarning(path.Root("description"), "Long description", "Attribute 'description' is longer than 2048 characters; consider shortening it.")
+		}
+	}
+	return
 }
 
 func (r *dashboardResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {

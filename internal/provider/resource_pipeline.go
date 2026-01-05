@@ -7,6 +7,7 @@ import (
 
 	"github.com/Ultrafenrir/terraform-provider-graylog/internal/client"
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -53,6 +54,12 @@ func (r *pipelineResource) Configure(_ context.Context, req resource.ConfigureRe
 func (r *pipelineResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var data pipelineModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	// Runtime validation
+	resp.Diagnostics.Append(validatePipeline(&data)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -107,6 +114,12 @@ func (r *pipelineResource) Update(ctx context.Context, req resource.UpdateReques
 		return
 	}
 
+	// Runtime validation
+	resp.Diagnostics.Append(validatePipeline(&data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
 	updateTimeout, diags := data.Timeouts.Update(ctx, 5*time.Minute)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
@@ -125,6 +138,17 @@ func (r *pipelineResource) Update(ctx context.Context, req resource.UpdateReques
 		return
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+}
+
+// validatePipeline checks title presence and warns about empty source.
+func validatePipeline(m *pipelineModel) (d diag.Diagnostics) {
+	if m.Title.IsNull() || m.Title.IsUnknown() || m.Title.ValueString() == "" {
+		d.AddAttributeError(path.Root("title"), "Invalid title", "Attribute 'title' must be a non-empty string.")
+	}
+	if m.Source.IsNull() || m.Source.IsUnknown() || m.Source.ValueString() == "" {
+		d.AddAttributeWarning(path.Root("source"), "Empty pipeline source", "Attribute 'source' is empty; pipeline with no stages/rules may have no effect.")
+	}
+	return
 }
 
 func (r *pipelineResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {

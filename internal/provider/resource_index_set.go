@@ -11,6 +11,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
 	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -208,6 +209,12 @@ func (r *indexSetResource) Create(ctx context.Context, req resource.CreateReques
 		return
 	}
 
+	// Runtime validation
+	resp.Diagnostics.Append(validateIndexSet(&data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
 	createTimeout, diags := data.Timeouts.Create(ctx, 5*time.Minute)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
@@ -293,6 +300,12 @@ func (r *indexSetResource) Read(ctx context.Context, req resource.ReadRequest, r
 func (r *indexSetResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
 	var data indexSetModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	// Runtime validation
+	resp.Diagnostics.Append(validateIndexSet(&data)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -387,4 +400,24 @@ func mapToStringMap(ctx context.Context, in map[string]any) types.Map {
 	}
 	mv, _ := types.MapValueFrom(ctx, types.StringType, flat)
 	return mv
+}
+
+// validateIndexSet performs basic checks for key fields.
+func validateIndexSet(m *indexSetModel) (d diag.Diagnostics) {
+	if m.Title.IsNull() || m.Title.IsUnknown() || m.Title.ValueString() == "" {
+		d.AddAttributeError(path.Root("title"), "Invalid title", "Attribute 'title' must be a non-empty string.")
+	}
+	if m.IndexPrefix.IsNull() || m.IndexPrefix.IsUnknown() || m.IndexPrefix.ValueString() == "" {
+		d.AddAttributeError(path.Root("index_prefix"), "Invalid index_prefix", "Attribute 'index_prefix' must be a non-empty string.")
+	}
+	if !m.IndexOptMaxSeg.IsNull() && !m.IndexOptMaxSeg.IsUnknown() && m.IndexOptMaxSeg.ValueInt64() < 1 {
+		d.AddAttributeError(path.Root("index_optimization_max_num_segments"), "Invalid max segments", "'index_optimization_max_num_segments' must be >= 1 when specified.")
+	}
+	if !m.Shards.IsNull() && !m.Shards.IsUnknown() && m.Shards.ValueInt64() < 0 {
+		d.AddAttributeError(path.Root("shards"), "Invalid shards", "'shards' must be >= 0.")
+	}
+	if !m.Replicas.IsNull() && !m.Replicas.IsUnknown() && m.Replicas.ValueInt64() < 0 {
+		d.AddAttributeError(path.Root("replicas"), "Invalid replicas", "'replicas' must be >= 0.")
+	}
+	return
 }

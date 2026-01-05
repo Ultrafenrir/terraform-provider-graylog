@@ -8,6 +8,7 @@ import (
 
 	"github.com/Ultrafenrir/terraform-provider-graylog/internal/client"
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -60,6 +61,12 @@ func (r *alertResource) Configure(_ context.Context, req resource.ConfigureReque
 func (r *alertResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var data alertModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	// Runtime validation
+	resp.Diagnostics.Append(validateAlert(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -142,6 +149,12 @@ func (r *alertResource) Read(ctx context.Context, req resource.ReadRequest, resp
 func (r *alertResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
 	var data alertModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	// Runtime validation
+	resp.Diagnostics.Append(validateAlert(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -230,4 +243,40 @@ func toString(v interface{}) string {
 	default:
 		return ""
 	}
+}
+
+// validateAlert checks fields and config for required keys.
+func validateAlert(ctx context.Context, m *alertModel) (d diag.Diagnostics) {
+	if m.Title.IsNull() || m.Title.IsUnknown() || m.Title.ValueString() == "" {
+		d.AddAttributeError(path.Root("title"), "Invalid title", "Attribute 'title' must be a non-empty string.")
+	}
+	if !m.Priority.IsNull() && !m.Priority.IsUnknown() {
+		if m.Priority.ValueInt64() < 0 {
+			d.AddAttributeError(path.Root("priority"), "Invalid priority", "Attribute 'priority' must be >= 0.")
+		}
+	}
+	// notification_ids: non-empty strings if provided
+	for i, v := range m.NotificationIDs {
+		if v.IsNull() || v.IsUnknown() || v.ValueString() == "" {
+			d.AddAttributeError(path.Root("notification_ids").AtListIndex(i), "Invalid notification id", "Each 'notification_ids' entry must be a non-empty string.")
+		}
+	}
+	// config: if provided, must contain non-empty 'type'
+	if !m.Config.IsNull() && !m.Config.IsUnknown() {
+		tmp := make(map[string]interface{}, len(m.Config.Elements()))
+		if di := m.Config.ElementsAs(ctx, &tmp, false); di.HasError() {
+			d.Append(di...)
+			return d
+		}
+		v, ok := tmp["type"]
+		if !ok {
+			d.AddAttributeError(path.Root("config"), "Missing config.type", "Event 'config' must contain key 'type' with a non-empty string value.")
+		} else {
+			s, sok := v.(string)
+			if !sok || s == "" {
+				d.AddAttributeError(path.Root("config").AtName("type"), "Empty config.type", "'config.type' must be a non-empty string.")
+			}
+		}
+	}
+	return
 }
