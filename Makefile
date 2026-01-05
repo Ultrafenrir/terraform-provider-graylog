@@ -108,7 +108,7 @@ graylog-up:
 	    *)   mongo=6.0 ;; \
 	  esac; \
 	  echo "Using MongoDB $$mongo for Graylog $$ver"; \
-	  MONGO_TAG="$$mongo" GRAYLOG_VERSION="$$ver" docker compose up -d'
+	  MONGO_TAG="$$mongo" GRAYLOG_VERSION="$$ver" docker compose up -d --remove-orphans'
 
 graylog-down:
 	@echo "Stopping and removing Graylog stack..."

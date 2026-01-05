@@ -18,6 +18,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.22.x'
+          cache: false
 
       - name: Setup Docker Buildx (for completeness)
         uses: docker/setup-buildx-action@v3
@@ -32,6 +33,10 @@ jobs:
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-
+
+      - name: Ensure clean docker compose state
+        run: |
+          docker compose down -v || true
 
       - name: Run all integration tests (docker compose)
         env:
@@ -51,6 +56,8 @@ jobs:
         if: failure()
         run: |
           docker compose logs > docker-compose-logs.txt || true
+          # ensure file exists for artifact upload
+          [ -f docker-compose-logs.txt ] || touch docker-compose-logs.txt
         continue-on-error: true
 
       - name: Archive docker logs
@@ -59,6 +66,7 @@ jobs:
         with:
           name: docker-compose-logs
           path: docker-compose-logs.txt
+          if-no-files-found: ignore
 
   build-artifacts:
     name: Build artifacts (matrix)
@@ -76,6 +84,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.22.x'
+          cache: false
 
       - name: Build and zip
         env:
@@ -113,10 +122,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p dist_flat
-          # Move all zips from downloaded artifact subfolders into dist_flat
-          find dist -type f -name '*.zip' -exec mv {} dist_flat/ \;
-          mv dist_flat dist
+          # Prepare a clean final dir
+          rm -rf dist_final
+          mkdir -p dist_final
+          # Copy all zips from downloaded artifact subfolders into dist_final
+          find dist -type f -name '*.zip' -exec cp -f {} dist_final/ \;
+          # Replace dist with the finalized directory to avoid directory collision
+          rm -rf dist
+          mv dist_final dist
           ls -la dist
 
       - name: Generate SHA256SUMS
@@ -124,6 +137,13 @@ jobs:
         run: |
           set -euo pipefail
           cd dist
+          # Basic sanity check: expect at least 4 zips (linux/darwin x amd64/arm64)
+          cnt=$(ls -1 *.zip 2>/dev/null | wc -l || true)
+          if [ "$cnt" -lt 4 ]; then
+            echo "Expected at least 4 artifacts (*.zip), got $cnt" 1>&2
+            ls -la
+            exit 1
+          fi
           sha256sum *.zip > SHA256SUMS
           echo "Generated SHA256SUMS:" && cat SHA256SUMS
 

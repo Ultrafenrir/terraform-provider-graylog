@@ -88,3 +88,4 @@ jobs:
         with:
           name: docker-compose-logs
           path: docker-compose-logs.txt
+          if-no-files-found: ignore
