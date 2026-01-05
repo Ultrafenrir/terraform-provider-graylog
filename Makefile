@@ -188,6 +188,16 @@ clean:
 
 release: clean build-all
 	@echo "Creating release..."
-	mkdir -p dist
-	cd build && for f in $(PLUGIN)*; do zip ../dist/$$f.zip $$f; done
-	@echo "Release is available in dist/"
+	@bash -c '\
+	  set -e; \
+	  mkdir -p dist; \
+	  for f in build/$(PLUGIN)_$(VERSION)_*; do \
+	    base=$$(basename $$f); \
+	    osarch=$${base##$(PLUGIN)_$(VERSION)_}; \
+	    bin_in_zip="$(PLUGIN)_v$(VERSION)"; \
+	    cp "$$f" "dist/$$bin_in_zip"; \
+	    (cd dist && zip "$(PLUGIN)_$(VERSION)_$$osarch.zip" "$$bin_in_zip" && rm -f "$$bin_in_zip"); \
+	  done; \
+	  (cd dist && sha256sum *.zip > $(PLUGIN)_$(VERSION)_SHA256SUMS); \
+	  echo "Release is available in dist/ (zips + $(PLUGIN)_$(VERSION)_SHA256SUMS)"; \
+	'

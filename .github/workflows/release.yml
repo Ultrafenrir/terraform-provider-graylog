@@ -95,10 +95,13 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           BIN="terraform-provider-graylog"
           mkdir -p dist
-          OUT="dist/${BIN}_${VERSION}_${GOOS}_${GOARCH}"
-          echo "Building $OUT"
-          go build -ldflags "-s -w" -o "$OUT"
-          (cd dist && zip "${BIN}_${VERSION}_${GOOS}_${GOARCH}.zip" "${BIN}_${VERSION}_${GOOS}_${GOARCH}")
+          # Имя бинарника внутри архива должно включать префикс v и не содержать ОС/арх
+          BIN_IN_ZIP="${BIN}_v${VERSION}"
+          OUT="dist/${BIN_IN_ZIP}"
+          echo "Building $OUT for ${GOOS}/${GOARCH}"
+          GOOS=${GOOS} GOARCH=${GOARCH} go build -ldflags "-s -w" -o "$OUT"
+          # Упаковываем в архив с ОС/арх в имени
+          (cd dist && zip "${BIN}_${VERSION}_${GOOS}_${GOARCH}.zip" "${BIN_IN_ZIP}")
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -144,8 +147,10 @@ jobs:
             ls -la
             exit 1
           fi
-          sha256sum *.zip > SHA256SUMS
-          echo "Generated SHA256SUMS:" && cat SHA256SUMS
+          VERSION="${GITHUB_REF_NAME#v}"
+          SUMS_FILE="terraform-provider-graylog_${VERSION}_SHA256SUMS"
+          sha256sum *.zip > "${SUMS_FILE}"
+          echo "Generated ${SUMS_FILE}:" && cat "${SUMS_FILE}"
 
       - name: Import GPG key
         uses: crazy-max/ghaction-import-gpg@v6
@@ -158,16 +163,18 @@ jobs:
         run: |
           set -euo pipefail
           cd dist
-          gpg --batch --yes --armor --detach-sign --output SHA256SUMS.sig SHA256SUMS
-          echo "Signature created: SHA256SUMS.sig"
+          VERSION="${GITHUB_REF_NAME#v}"
+          SUMS_FILE="terraform-provider-graylog_${VERSION}_SHA256SUMS"
+          gpg --batch --yes --armor --detach-sign --output "${SUMS_FILE}.sig" "${SUMS_FILE}"
+          echo "Signature created: ${SUMS_FILE}.sig"
 
       - name: Create GitHub Release (single upload)
         uses: softprops/action-gh-release@v2
         with:
           files: |
             dist/*.zip
-            dist/SHA256SUMS
-            dist/SHA256SUMS.sig
+            dist/terraform-provider-graylog_*_SHA256SUMS
+            dist/terraform-provider-graylog_*_SHA256SUMS.sig
           draft: false
           prerelease: false
         env:
