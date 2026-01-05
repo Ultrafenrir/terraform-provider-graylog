@@ -71,7 +71,7 @@ jobs:
   build-artifacts:
     name: Build artifacts (matrix)
     runs-on: ubuntu-latest
-    needs: [integration-test]
+    needs: [integration-test, acceptance-test]
     strategy:
       matrix:
         goos: [linux, darwin]
@@ -112,7 +112,7 @@ jobs:
   publish-release:
     name: Sign and publish release
     runs-on: ubuntu-latest
-    needs: [integration-test, build-artifacts]
+    needs: [integration-test, acceptance-test, build-artifacts]
     permissions:
       contents: write
     steps:
@@ -179,3 +179,50 @@ jobs:
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  acceptance-test:
+    name: Acceptance tests (TF_ACC)
+    runs-on: ubuntu-latest
+    needs: [integration-test]
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22.x'
+          cache: false
+
+      - name: Ensure clean docker compose state
+        run: |
+          docker compose down -v || true
+
+      - name: Run acceptance tests (TF_ACC)
+        env:
+          URL: http://127.0.0.1:9000/api
+          TOKEN: ${{ secrets.GRAYLOG_TOKEN_BASE64 }}
+          TF_ACC: '1'
+        run: |
+          set -euo pipefail
+          if [ -z "${TOKEN:-}" ]; then
+            TOKEN=$(printf 'admin:admin' | base64)
+            export TOKEN
+          fi
+          make test-acc
+
+      - name: Upload docker logs on failure
+        if: failure()
+        run: |
+          docker compose logs > docker-compose-logs.txt || true
+          [ -f docker-compose-logs.txt ] || touch docker-compose-logs.txt
+        continue-on-error: true
+
+      - name: Archive docker logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-compose-logs-acceptance
+          path: docker-compose-logs.txt
+          if-no-files-found: ignore

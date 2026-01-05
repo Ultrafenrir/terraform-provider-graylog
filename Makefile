@@ -83,7 +83,7 @@ test-unit:
 
 test-acc:
 	@echo "Running acceptance tests (requires a running Graylog)..."
-	TF_ACC=1 go test -v -run "^TestAcc" ./... -timeout 30m
+	TF_ACC=1 go test -v -tags=acceptance -run "^TestAcc" ./... -timeout 30m
 
 test: lint
 	@set -e; \
