@@ -2,9 +2,22 @@
 
 This provider manages Graylog resources: streams (with rules), inputs (with extractors), index sets, pipelines, dashboards, and alerts (Event Definitions). It targets Graylog v5, v6, and v7. API prefix `/api` is applied automatically for v6/v7 where needed.
 
-## Quick start
+## Installation (Terraform Registry)
 
-Provider configuration example:
+Add the provider requirement (namespace is based on the GitHub org):
+
+```hcl
+terraform {
+  required_providers {
+    graylog = {
+      source  = "Ultrafenrir/graylog"
+      version = "~> 0.2"
+    }
+  }
+}
+```
+
+Then configure the provider:
 
 ```hcl
 provider "graylog" {
@@ -79,3 +92,9 @@ Integration tests run against a real Graylog via docker‑compose:
    The target brings up Graylog, waits for readiness, then runs `go test` with the `integration` tag.
 
 Note: Integration tests are marked with `//go:build integration` and are not executed by a regular `make test`.
+
+## Releases and publishing
+
+- GitHub Actions build and publish artifacts on tags matching `v*`.
+- Artifacts include platform zips, `SHA256SUMS` and `SHA256SUMS.sig` signed with your GPG key.
+- To publish a new version: push a tag, for example `git tag v0.2.1 && git push origin v0.2.1`.

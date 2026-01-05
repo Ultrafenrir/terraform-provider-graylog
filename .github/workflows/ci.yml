@@ -1,0 +1,31 @@
+name: ci
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22.x'
+
+      - name: Go mod download
+        run: go mod download
+
+      - name: Lint (go vet)
+        run: go vet ./...
+
+      - name: Unit tests
+        run: go test -v ./...
+
+      - name: Build (quick)
+        run: make build-quick

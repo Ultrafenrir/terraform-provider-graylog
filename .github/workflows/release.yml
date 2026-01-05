@@ -1,0 +1,134 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  integration-test:
+    name: Integration tests (Graylog 5.x/6.x/7.x)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22.x'
+
+      - name: Setup Docker Buildx (for completeness)
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub (optional)
+        if: ${{ secrets.DOCKERHUB_USERNAME && secrets.DOCKERHUB_TOKEN }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Run all integration tests (docker compose)
+        env:
+          # Defaults used by Makefile and tests
+          URL: http://127.0.0.1:9000/api
+          TOKEN: ${{ secrets.GRAYLOG_TOKEN_BASE64 }}
+        run: |
+          set -euo pipefail
+          # If no token provided, fall back to default admin:admin used by tests
+          if [ -z "${TOKEN:-}" ]; then
+            TOKEN=$(printf 'admin:admin' | base64)
+            export TOKEN
+          fi
+          make test-integration-all
+
+      - name: Upload docker logs on failure
+        if: failure()
+        run: |
+          docker compose logs > docker-compose-logs.txt || true
+        continue-on-error: true
+
+      - name: Archive docker logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-compose-logs
+          path: docker-compose-logs.txt
+
+  build-sign-release:
+    name: Build, sign and release artifacts
+    runs-on: ubuntu-latest
+    needs: [integration-test]
+    permissions:
+      contents: write
+    strategy:
+      matrix:
+        goos: [linux, darwin]
+        goarch: [amd64, arm64]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22.x'
+
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          BIN="terraform-provider-graylog"
+          mkdir -p dist
+          OUT="dist/${BIN}_${VERSION}_${GOOS}_${GOARCH}"
+          echo "Building $OUT"
+          go build -ldflags "-s -w" -o "$OUT"
+          (cd dist && zip "${BIN}_${VERSION}_${GOOS}_${GOARCH}.zip" "${BIN}_${VERSION}_${GOOS}_${GOARCH}")
+
+      - name: Generate SHA256SUMS
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum *.zip > SHA256SUMS
+          echo "Generated SHA256SUMS:" && cat SHA256SUMS
+
+      - name: Import GPG key
+        uses: crazy-max/ghaction-import-gpg@v6
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.GPG_PASSPHRASE }}
+
+      - name: Sign SHA256SUMS
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          gpg --batch --yes --armor --detach-sign --output SHA256SUMS.sig SHA256SUMS
+          echo "Signature created: SHA256SUMS.sig"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.zip
+            dist/SHA256SUMS
+            dist/SHA256SUMS.sig
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
