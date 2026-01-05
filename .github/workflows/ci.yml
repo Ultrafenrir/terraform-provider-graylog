@@ -32,3 +32,59 @@ jobs:
 
       - name: Build (quick)
         run: make build-quick
+
+  integration-test:
+    # Интеграционные тесты запускаем только для pull_request, чтобы гарантировать
+    # их прохождение перед merge. Для push можно отключить, чтобы экономить время.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    needs: [build-test]
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22.x'
+          cache: false
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        continue-on-error: true
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Run integration tests for Graylog 5/6/7
+        env:
+          URL: http://127.0.0.1:9000/api
+          TOKEN: ${{ secrets.GRAYLOG_TOKEN_BASE64 }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TOKEN:-}" ]; then
+            TOKEN=$(printf 'admin:admin' | base64)
+            export TOKEN
+          fi
+          make test-integration-all
+
+      - name: Upload docker logs on failure
+        if: failure()
+        run: |
+          docker compose logs > docker-compose-logs.txt || true
+        continue-on-error: true
+
+      - name: Archive docker logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-compose-logs
+          path: docker-compose-logs.txt
