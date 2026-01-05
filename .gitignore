@@ -1,46 +1,12 @@
-# ===========================
-# Go build artifacts
-# ===========================
-*.exe
-*.exe~
-*.dll
-*.so
-*.dylib
-*.test
-*.out
-
-# Go modules & caches
-/vendor/
-/bin/
-/dist/
-/tmp/
-/coverage.out
-/go.sum
-
-# ===========================
-# Terraform Provider builds
-# ===========================
-/build/
-terraform-provider-graylog_*
-
-# ===========================
-# IDE / Editor files
-# ===========================
-# JetBrains (GoLand, IntelliJ)
+TerraformProviderGraylogAPI.md
+IMPROVEMENTS.md
+.output.txt
+/build/*
 .idea/
 *.iml
 out/
-
-# VSCode
 .vscode/
 .history/
-
-# ===========================
-# OS / Misc files
-# ===========================
-.DS_Store
-Thumbs.db
-desktop.ini
 
 # ===========================
 # Logs and temp
@@ -65,3 +31,7 @@ examples/*.tfstate
 examples/*.tfstate.backup
 examples/.terraform/
 examples/.terraform.lock.hcl
+*.tfstate
+*.tfstate.backup
+.terraform/
+.terraform.lock.hcl

@@ -1,0 +1,56 @@
+version: "3.8"
+
+services:
+  mongo:
+    image: mongo:${MONGO_TAG:-6.0}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  opensearch:
+    image: opensearchproject/opensearch:2.17.0
+    environment:
+      - discovery.type=single-node
+      - plugins.security.disabled=true
+      - DISABLE_INSTALL_DEMO_CONFIG=true
+      - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    restart: unless-stopped
+    ports:
+      - "9200:9200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:9200 >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  graylog:
+    image: graylog/graylog:${GRAYLOG_VERSION:-6.0}
+    depends_on:
+      mongo:
+        condition: service_started
+      opensearch:
+        condition: service_healthy
+    environment:
+      - GRAYLOG_NODE_ID_FILE=/usr/share/graylog/data/config/node-id
+      - GRAYLOG_PASSWORD_SECRET=somepasswordpepperchangeme
+      - GRAYLOG_ROOT_PASSWORD_SHA2=8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918 # admin
+      - GRAYLOG_HTTP_EXTERNAL_URI=http://127.0.0.1:9000/
+      - GRAYLOG_ELASTICSEARCH_HOSTS=http://opensearch:9200
+      - GRAYLOG_SERVER_JAVA_OPTS=-Xms512m -Xmx512m
+    ports:
+      - "9000:9000"   # Web UI + REST API (/api)
+      - "12201:12201" # GELF UDP
+      - "12201:12201/udp"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:9000/api/system | grep -qE '^(200|401)$'"]
+      interval: 10s
+      timeout: 5s
+      retries: 30

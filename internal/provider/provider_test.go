@@ -1,8 +1,12 @@
 package provider
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestProvider_New(t *testing.T) {
 	p := New()
-	if p == nil { t.Fatal("provider is nil") }
+	if p == nil {
+		t.Fatal("provider is nil")
+	}
 }
