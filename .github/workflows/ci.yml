@@ -17,6 +17,9 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.22.x'
+          # Явно отключаем встроенное кеширование setup-go, чтобы избежать warning
+          # "Failed to restore: /usr/bin/tar exited with code 2" на некоторых раннерах
+          cache: false
 
       - name: Go mod download
         run: go mod download

@@ -11,7 +11,7 @@ terraform {
   required_providers {
     graylog = {
       source  = "Ultrafenrir/graylog"
-      version = "~> 0.2"
+      version = "~> 0.1"
     }
   }
 }
@@ -97,4 +97,4 @@ Note: Integration tests are marked with `//go:build integration` and are not exe
 
 - GitHub Actions build and publish artifacts on tags matching `v*`.
 - Artifacts include platform zips, `SHA256SUMS` and `SHA256SUMS.sig` signed with your GPG key.
-- To publish a new version: push a tag, for example `git tag v0.2.1 && git push origin v0.2.1`.
+- To publish a new version: push a tag, for example `git tag v0.1.0 && git push origin v0.1.0`.

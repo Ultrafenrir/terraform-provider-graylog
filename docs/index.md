@@ -22,7 +22,7 @@ terraform {
   required_providers {
     graylog = {
       source  = "Ultrafenrir/graylog"
-      version = "~> 0.2"
+      version = "~> 0.1"
     }
   }
 }
