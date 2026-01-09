@@ -412,6 +412,32 @@ type IndexSet struct {
 	IndexOptimizationDisabled       bool `json:"index_optimization_disabled,omitempty"`
 }
 
+// ListIndexSets returns all index sets (used to find the default/writable set).
+func (c *Client) ListIndexSets() ([]IndexSet, error) {
+	path := "/system/indices/index_sets"
+	if c.APIVersion == APIV6 || c.APIVersion == APIV7 {
+		path = "/api/system/indices/index_sets"
+	}
+	resp, err := c.doRequest("GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	// Graylog usually wraps list into {"index_sets": [...]} but be liberal in parsing
+	var wrapper struct {
+		IndexSets []IndexSet `json:"index_sets"`
+	}
+	if err := json.Unmarshal(resp, &wrapper); err == nil && len(wrapper.IndexSets) > 0 {
+		return wrapper.IndexSets, nil
+	}
+	// Fallback: try to unmarshal as a plain array
+	var arr []IndexSet
+	if err := json.Unmarshal(resp, &arr); err == nil {
+		return arr, nil
+	}
+	// If neither worked, return empty slice
+	return []IndexSet{}, nil
+}
+
 func (c *Client) CreateIndexSet(is *IndexSet) (*IndexSet, error) {
 	// Some Graylog/OpenSearch setups require a non-null index analyzer. Use a safe default
 	// if not provided explicitly to keep compatibility across Graylog v5/v6/v7.
@@ -749,6 +775,9 @@ type EventDefinition struct {
 	Alert           bool                   `json:"alert,omitempty"`
 	Config          map[string]interface{} `json:"config,omitempty"`
 	NotificationIDs []string               `json:"notification_ids,omitempty"`
+	// Graylog 5 requires additional fields
+	KeySpec              []string               `json:"key_spec,omitempty"`
+	NotificationSettings map[string]interface{} `json:"notification_settings,omitempty"`
 }
 
 func (c *Client) CreateEventDefinition(ed *EventDefinition) (*EventDefinition, error) {
@@ -756,7 +785,33 @@ func (c *Client) CreateEventDefinition(ed *EventDefinition) (*EventDefinition, e
 	if c.APIVersion == APIV6 || c.APIVersion == APIV7 {
 		path = "/api/events/definitions"
 	}
-	resp, err := c.doRequest("POST", path, ed)
+	// Ensure required defaults for Graylog 5 compatibility
+	if ed.KeySpec == nil {
+		ed.KeySpec = []string{}
+	}
+	if ed.NotificationSettings == nil {
+		ed.NotificationSettings = map[string]interface{}{
+			"grace_period_ms": 0,
+			"backlog_size":    0,
+		}
+	}
+	var body any = ed
+	if c.APIVersion == APIV5 {
+		// GL5 expects snake_case fields key_spec/notification_settings
+		req := map[string]any{
+			"title":       ed.Title,
+			"description": ed.Description,
+			"priority":    ed.Priority,
+			"alert":       ed.Alert,
+			"config":      ed.Config,
+			// GL5 uses "notifications" objects; omit unknown notification_ids
+			"notifications":         []any{},
+			"notification_settings": ed.NotificationSettings,
+			"key_spec":              ed.KeySpec,
+		}
+		body = req
+	}
+	resp, err := c.doRequest("POST", path, body)
 	if err != nil {
 		return nil, err
 	}
@@ -784,7 +839,30 @@ func (c *Client) UpdateEventDefinition(id string, ed *EventDefinition) (*EventDe
 	if c.APIVersion == APIV6 || c.APIVersion == APIV7 {
 		path = fmt.Sprintf("/api/events/definitions/%s", id)
 	}
-	resp, err := c.doRequest("PUT", path, ed)
+	if ed.KeySpec == nil {
+		ed.KeySpec = []string{}
+	}
+	if ed.NotificationSettings == nil {
+		ed.NotificationSettings = map[string]interface{}{
+			"grace_period_ms": 0,
+			"backlog_size":    0,
+		}
+	}
+	var body any = ed
+	if c.APIVersion == APIV5 {
+		req := map[string]any{
+			"title":                 ed.Title,
+			"description":           ed.Description,
+			"priority":              ed.Priority,
+			"alert":                 ed.Alert,
+			"config":                ed.Config,
+			"notifications":         []any{},
+			"notification_settings": ed.NotificationSettings,
+			"key_spec":              ed.KeySpec,
+		}
+		body = req
+	}
+	resp, err := c.doRequest("PUT", path, body)
 	if err != nil {
 		return nil, err
 	}

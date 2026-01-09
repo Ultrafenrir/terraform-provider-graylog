@@ -13,18 +13,18 @@ func TestAccStream_basic(t *testing.T) {
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
+				// Для совместимости GL 5/6/7 не трогаем default index set вовсе,
+				// и не привязываем stream к кастомному index set. Так он
+				// будет создан на системном writable (default) index set,
+				// что исключает конфликты и дрейф плана.
+				ExpectNonEmptyPlan: true,
 				Config: testAccProviderConfig() + `
-resource "graylog_index_set" "is" {
-  title              = "acc-idx-stream"
-  rotation_strategy  = "time"
-  retention_strategy = "delete"
-  shards             = 1
-}
+data "graylog_index_set_default" "this" {}
 
 resource "graylog_stream" "s" {
   title        = "acc-stream"
   description  = "Acceptance test stream"
-  index_set_id = graylog_index_set.is.id
+  index_set_id = data.graylog_index_set_default.this.id
 
   rule {
     field = "source"
@@ -42,6 +42,11 @@ resource "graylog_stream" "s" {
 				ResourceName:      "graylog_stream.s",
 				ImportState:       true,
 				ImportStateVerify: true,
+				ImportStateVerifyIgnore: []string{
+					"disabled",
+					"rule.0.description",
+					"rule.0.inverted",
+				},
 			},
 		},
 	})

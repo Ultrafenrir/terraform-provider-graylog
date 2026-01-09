@@ -112,7 +112,7 @@ func (r *streamResource) Create(ctx context.Context, req resource.CreateRequest,
 	}
 	data.ID = types.StringValue(created.ID)
 	// Create rules if provided via dedicated API
-	for _, rr := range data.Rules {
+	for i, rr := range data.Rules {
 		rule := &client.StreamRule{
 			Field:       rr.Field.ValueString(),
 			Type:        int(rr.Type.ValueInt64()),
@@ -127,7 +127,34 @@ func (r *streamResource) Create(ctx context.Context, req resource.CreateRequest,
 		}
 		// Update IDs in state slice
 		if cr != nil && cr.ID != "" {
-			rr.ID = types.StringValue(cr.ID)
+			// write back into slice element by index (range copy fix)
+			data.Rules[i].ID = types.StringValue(cr.ID)
+		}
+	}
+	// Fallback: if some rule IDs are still unknown/empty, fetch from API and map them back
+	needMap := false
+	for _, rr := range data.Rules {
+		if rr.ID.IsNull() || rr.ID.IsUnknown() || rr.ID.ValueString() == "" {
+			needMap = true
+			break
+		}
+	}
+	if needMap {
+		if rules, err := r.client.ListStreamRules(data.ID.ValueString()); err == nil {
+			for i, rr := range data.Rules {
+				if !rr.ID.IsNull() && !rr.ID.IsUnknown() && rr.ID.ValueString() != "" {
+					continue
+				}
+				// try to find a matching rule by properties
+				for _, ar := range rules {
+					if ar.Field == rr.Field.ValueString() && ar.Value == rr.Value.ValueString() && ar.Type == int(rr.Type.ValueInt64()) && ar.Inverted == rr.Inverted.ValueBool() {
+						data.Rules[i].ID = types.StringValue(ar.ID)
+						break
+					}
+				}
+			}
+		} else {
+			resp.Diagnostics.AddWarning("Unable to map stream rule IDs", err.Error())
 		}
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)

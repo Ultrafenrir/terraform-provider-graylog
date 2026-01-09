@@ -19,7 +19,8 @@ OS ?= $(shell uname -s | tr '[:upper:]' '[:lower:]')
 ARCH ?= $(shell uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/')
 
 .PHONY: default deps deps-fresh fmt lint test test-unit test-acc build build-quick build-all clean release help \
-	graylog-up graylog-down graylog-logs graylog-wait test-integration test-integration-one test-integration-all
+	graylog-up graylog-down graylog-logs graylog-wait test-integration test-integration-one test-integration-all \
+	test-acc-integration test-acc-one test-acc-all
 
 default: build-quick
 
@@ -84,6 +85,34 @@ test-unit:
 test-acc:
 	@echo "Running acceptance tests (requires a running Graylog)..."
 	TF_ACC=1 go test -v -tags=acceptance -run "^TestAcc" ./... -timeout 30m
+
+# ---------- Acceptance tests with docker-compose (like integration) ----------
+# Run acceptance tests against a real Graylog started by docker-compose
+test-acc-integration: graylog-up graylog-wait
+	@echo "Running acceptance tests (TF_ACC=1) against docker-compose Graylog..."
+	@bash -c '\
+	  set -e; \
+	  GL_BASIC=$$(printf "admin:admin" | base64); \
+	  export URL="$${URL:-http://127.0.0.1:9000/api}"; \
+	  export TOKEN="$${TOKEN:-$$GL_BASIC}"; \
+	  TF_ACC=1 go test -v -tags=acceptance -run "^TestAcc" -timeout $(TIMEOUT) ./internal/provider'; \
+	status=$$?; \
+	$(MAKE) graylog-down; \
+	exit $$status
+
+# Run acceptance tests once for the current GRAYLOG_VERSION
+test-acc-one:
+	@echo "GRAYLOG_VERSION=$(GRAYLOG_VERSION)"
+	$(MAKE) GRAYLOG_VERSION=$(GRAYLOG_VERSION) test-acc-integration
+
+# Run acceptance tests sequentially for Graylog 5, 6, and 7
+test-acc-all:
+	@set -e; \
+	for ver in 5.0 6.0 7.0; do \
+	  echo "==== Running acceptance tests for Graylog $$ver ===="; \
+	  $(MAKE) GRAYLOG_VERSION=$$ver test-acc-one; \
+	done; \
+	echo "Acceptance tests passed for Graylog 5.x, 6.x and 7.x"
 
 test: lint
 	@set -e; \

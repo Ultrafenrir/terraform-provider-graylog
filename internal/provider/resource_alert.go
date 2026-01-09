@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -23,7 +24,7 @@ type alertModel struct {
 	Description     types.String   `tfsdk:"description"`
 	Priority        types.Int64    `tfsdk:"priority"`
 	Alert           types.Bool     `tfsdk:"alert"`
-	Config          types.Map      `tfsdk:"config"`
+	Config          types.String   `tfsdk:"config"`
 	NotificationIDs []types.String `tfsdk:"notification_ids"`
 	Timeouts        timeouts.Value `tfsdk:"timeouts"`
 }
@@ -36,15 +37,16 @@ func (r *alertResource) Metadata(_ context.Context, _ resource.MetadataRequest, 
 
 func (r *alertResource) Schema(ctx context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Version:     2,
+		Version:     4,
 		Description: "Manages a Graylog Event Definition (alerts)",
 		Attributes: map[string]schema.Attribute{
-			"id":               schema.StringAttribute{Computed: true, Description: "Event Definition ID"},
-			"title":            schema.StringAttribute{Required: true, Description: "Title"},
-			"description":      schema.StringAttribute{Optional: true, Description: "Description"},
-			"priority":         schema.Int64Attribute{Optional: true, Description: "Priority (severity)"},
-			"alert":            schema.BoolAttribute{Optional: true, Description: "Whether to create alerts"},
-			"config":           schema.MapAttribute{Optional: true, ElementType: types.DynamicType, Description: "Event configuration as free-form map; values may be strings, numbers, booleans, or nested objects (pass-through)."},
+			"id":          schema.StringAttribute{Computed: true, Description: "Event Definition ID"},
+			"title":       schema.StringAttribute{Required: true, Description: "Title"},
+			"description": schema.StringAttribute{Optional: true, Description: "Description"},
+			"priority":    schema.Int64Attribute{Optional: true, Description: "Priority (severity)"},
+			"alert":       schema.BoolAttribute{Optional: true, Description: "Whether to create alerts"},
+			// JSON-encoded free-form object to avoid nested DynamicType limitations
+			"config":           schema.StringAttribute{Optional: true, Description: "JSON-encoded event configuration (free-form object)."},
 			"notification_ids": schema.ListAttribute{Optional: true, ElementType: types.StringType, Description: "Notification IDs to trigger"},
 			"timeouts":         timeouts.Attributes(ctx, timeouts.Opts{Create: true, Update: true, Delete: true}),
 		},
@@ -79,16 +81,12 @@ func (r *alertResource) Create(ctx context.Context, req resource.CreateRequest, 
 	ctx, cancel := context.WithTimeout(ctx, createTimeout)
 	defer cancel()
 
-	// Convert config map(dynamic) -> map[string]interface{}
+	// Convert config (JSON string) -> map[string]interface{}
 	cfg := map[string]interface{}{}
-	if !data.Config.IsNull() && !data.Config.IsUnknown() {
-		tmp := make(map[string]interface{}, len(data.Config.Elements()))
-		resp.Diagnostics.Append(data.Config.ElementsAs(ctx, &tmp, false)...)
-		if resp.Diagnostics.HasError() {
+	if !data.Config.IsNull() && !data.Config.IsUnknown() && data.Config.ValueString() != "" {
+		if err := json.Unmarshal([]byte(data.Config.ValueString()), &cfg); err != nil {
+			resp.Diagnostics.AddAttributeError(path.Root("config"), "Invalid config JSON", err.Error())
 			return
-		}
-		for k, v := range tmp {
-			cfg[k] = v
 		}
 	}
 
@@ -133,10 +131,10 @@ func (r *alertResource) Read(ctx context.Context, req resource.ReadRequest, resp
 	data.Description = types.StringValue(ed.Description)
 	data.Priority = types.Int64Value(int64(ed.Priority))
 	data.Alert = types.BoolValue(ed.Alert)
-	// Pass-through dynamic config
-	mv, diag := types.MapValueFrom(ctx, types.DynamicType, ed.Config)
-	resp.Diagnostics.Append(diag...)
-	data.Config = mv
+	// Pass-through config back to state as JSON
+	if b, err := json.Marshal(ed.Config); err == nil {
+		data.Config = types.StringValue(string(b))
+	}
 	// Notification IDs back
 	var tv []types.String
 	for _, id := range ed.NotificationIDs {
@@ -168,14 +166,10 @@ func (r *alertResource) Update(ctx context.Context, req resource.UpdateRequest, 
 	defer cancel()
 
 	cfg := map[string]interface{}{}
-	if !data.Config.IsNull() && !data.Config.IsUnknown() {
-		tmp := make(map[string]interface{}, len(data.Config.Elements()))
-		resp.Diagnostics.Append(data.Config.ElementsAs(ctx, &tmp, false)...)
-		if resp.Diagnostics.HasError() {
+	if !data.Config.IsNull() && !data.Config.IsUnknown() && data.Config.ValueString() != "" {
+		if err := json.Unmarshal([]byte(data.Config.ValueString()), &cfg); err != nil {
+			resp.Diagnostics.AddAttributeError(path.Root("config"), "Invalid config JSON", err.Error())
 			return
-		}
-		for k, v := range tmp {
-			cfg[k] = v
 		}
 	}
 	var nids []string
@@ -262,10 +256,10 @@ func validateAlert(ctx context.Context, m *alertModel) (d diag.Diagnostics) {
 		}
 	}
 	// config: if provided, must contain non-empty 'type'
-	if !m.Config.IsNull() && !m.Config.IsUnknown() {
-		tmp := make(map[string]interface{}, len(m.Config.Elements()))
-		if di := m.Config.ElementsAs(ctx, &tmp, false); di.HasError() {
-			d.Append(di...)
+	if !m.Config.IsNull() && !m.Config.IsUnknown() && m.Config.ValueString() != "" {
+		var tmp map[string]interface{}
+		if err := json.Unmarshal([]byte(m.Config.ValueString()), &tmp); err != nil {
+			d.AddAttributeError(path.Root("config"), "Invalid config JSON", err.Error())
 			return d
 		}
 		v, ok := tmp["type"]

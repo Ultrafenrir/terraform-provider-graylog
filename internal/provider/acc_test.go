@@ -3,16 +3,17 @@
 package provider
 
 import (
+	"fmt"
 	"os"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
-	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
+	tfprotov6 "github.com/hashicorp/terraform-plugin-go/tfprotov6"
 )
 
 // ProtoV6 provider factory map for acceptance tests
-var testAccProtoV6ProviderFactories = map[string]func() (any, error){
-	"graylog": func() (any, error) { return providerserver.NewProtocol6WithError(New()) },
+var testAccProtoV6ProviderFactories = map[string]func() (tfprotov6.ProviderServer, error){
+	"graylog": providerserver.NewProtocol6WithError(New()),
 }
 
 func testAccPreCheck(t *testing.T) {
@@ -26,10 +27,15 @@ func testAccPreCheck(t *testing.T) {
 
 // Common provider configuration used in acceptance tests
 func testAccProviderConfig() string {
-	return `
+	url := os.Getenv("URL")
+	if url == "" {
+		url = "http://127.0.0.1:9000/api"
+	}
+	token := os.Getenv("TOKEN")
+	return fmt.Sprintf(`
 provider "graylog" {
-  url   = env("URL")
-  token = env("TOKEN")
+  url   = "%s"
+  token = "%s"
 }
-`
+`, url, token)
 }

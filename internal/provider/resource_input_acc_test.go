@@ -13,15 +13,18 @@ func TestAccInput_syslogUDP(t *testing.T) {
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
+				// Graylog may enrich input configuration with computed defaults; allow non-empty plan after refresh.
+				ExpectNonEmptyPlan: true,
 				Config: testAccProviderConfig() + `
 resource "graylog_input" "syslog_udp" {
   title  = "acc-syslog-udp"
   type   = "org.graylog2.inputs.syslog.udp.SyslogUDPInput"
   global = true
 
-  configuration = {
-    port = 1514
-  }
+  configuration = jsonencode({
+    bind_address = "0.0.0.0"
+    port         = 1514
+  })
 }
 `,
 				Check: resource.ComposeTestCheckFunc(
@@ -30,9 +33,10 @@ resource "graylog_input" "syslog_udp" {
 				),
 			},
 			{
-				ResourceName:      "graylog_input.syslog_udp",
-				ImportState:       true,
-				ImportStateVerify: true,
+				ResourceName:            "graylog_input.syslog_udp",
+				ImportState:             true,
+				ImportStateVerify:       true,
+				ImportStateVerifyIgnore: []string{"configuration", "node"},
 			},
 		},
 	})

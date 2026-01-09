@@ -51,6 +51,7 @@ func (p *graylogProvider) DataSources(_ context.Context) []func() datasource.Dat
 		NewStreamDataSource,
 		NewInputDataSource,
 		NewIndexSetDataSource,
+		NewIndexSetDefaultDataSource,
 	}
 }
 

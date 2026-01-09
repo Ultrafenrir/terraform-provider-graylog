@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -22,8 +23,8 @@ type inputModel struct {
 	Type          types.String   `tfsdk:"type"`
 	Global        types.Bool     `tfsdk:"global"`
 	Node          types.String   `tfsdk:"node"`
-	Configuration types.Map      `tfsdk:"configuration"`
-	Extractors    types.List     `tfsdk:"extractors"`
+	Configuration types.String   `tfsdk:"configuration"`
+	Extractors    types.String   `tfsdk:"extractors"`
 	Timeouts      timeouts.Value `tfsdk:"timeouts"`
 }
 
@@ -35,7 +36,7 @@ func (r *inputResource) Metadata(_ context.Context, _ resource.MetadataRequest, 
 
 func (r *inputResource) Schema(ctx context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Version:     4,
+		Version:     6,
 		Description: "Manages a Graylog input resource. Compatible with Graylog v5, v6, and v7.\n- Supports all Kafka input types and settings via flexible configuration.\n- Supports managing input extractors.",
 		Attributes: map[string]schema.Attribute{
 			"id":    schema.StringAttribute{Computed: true, Description: "The unique identifier of the input"},
@@ -50,15 +51,14 @@ func (r *inputResource) Schema(ctx context.Context, _ resource.SchemaRequest, re
 				Optional:    true,
 				Description: "Node ID to run this input on (if not global)",
 			},
-			"configuration": schema.MapAttribute{
-				ElementType: types.DynamicType,
+			// Use JSON-encoded strings to represent free-form objects to satisfy framework limitations.
+			"configuration": schema.StringAttribute{
 				Optional:    true,
-				Description: "Input-specific configuration parameters as key-value pairs. Values can be strings, numbers, or booleans to fully cover Kafka inputs.",
+				Description: "JSON-encoded object with input configuration (free-form).",
 			},
-			"extractors": schema.ListAttribute{
+			"extractors": schema.StringAttribute{
 				Optional:    true,
-				ElementType: types.MapType{ElemType: types.DynamicType},
-				Description: "List of extractors (free-form objects) passed directly to Graylog API. Each item is a map of extractor fields.",
+				Description: "JSON-encoded list of extractor objects (free-form).",
 			},
 			"timeouts": timeouts.Attributes(ctx, timeouts.Opts{Create: true, Update: true, Delete: true}),
 		},
@@ -79,12 +79,7 @@ func validateInput(ctx context.Context, data *inputModel) (diags diag.Diagnostic
 			diags.AddAttributeError(path.Root("node"), "Missing node for non-global input", "When 'global' is false, 'node' must be specified with a non-empty node ID.")
 		}
 	}
-	// Extractors: if provided, must not be an explicitly empty list
-	if !data.Extractors.IsNull() && !data.Extractors.IsUnknown() {
-		if len(data.Extractors.Elements()) == 0 {
-			diags.AddAttributeWarning(path.Root("extractors"), "Empty extractors list", "The 'extractors' list is provided but empty; it will have no effect.")
-		}
-	}
+	// Extractors: optional JSON string
 	return
 }
 
@@ -117,17 +112,12 @@ func (r *inputResource) Create(ctx context.Context, req resource.CreateRequest, 
 	ctx, cancel := context.WithTimeout(ctx, createTimeout)
 	defer cancel()
 
-	// Convert configuration map (allowing dynamic values for Kafka settings)
+	// Convert configuration (JSON string) into map[string]interface{}
 	config := make(map[string]interface{})
-	if !data.Configuration.IsNull() && !data.Configuration.IsUnknown() {
-		tmp := make(map[string]interface{}, len(data.Configuration.Elements()))
-		diags = data.Configuration.ElementsAs(ctx, &tmp, false)
-		resp.Diagnostics.Append(diags...)
-		if resp.Diagnostics.HasError() {
+	if !data.Configuration.IsNull() && !data.Configuration.IsUnknown() && data.Configuration.ValueString() != "" {
+		if err := json.Unmarshal([]byte(data.Configuration.ValueString()), &config); err != nil {
+			resp.Diagnostics.AddAttributeError(path.Root("configuration"), "Invalid configuration JSON", err.Error())
 			return
-		}
-		for k, v := range tmp {
-			config[k] = v
 		}
 	}
 
@@ -144,12 +134,11 @@ func (r *inputResource) Create(ctx context.Context, req resource.CreateRequest, 
 		return
 	}
 	data.ID = types.StringValue(created.ID)
-	// Create extractors if provided
-	if !data.Extractors.IsNull() && !data.Extractors.IsUnknown() {
+	// Create extractors if provided (JSON list of maps)
+	if !data.Extractors.IsNull() && !data.Extractors.IsUnknown() && data.Extractors.ValueString() != "" {
 		var extractorObjs []map[string]interface{}
-		diags = data.Extractors.ElementsAs(ctx, &extractorObjs, false)
-		resp.Diagnostics.Append(diags...)
-		if resp.Diagnostics.HasError() {
+		if err := json.Unmarshal([]byte(data.Extractors.ValueString()), &extractorObjs); err != nil {
+			resp.Diagnostics.AddAttributeError(path.Root("extractors"), "Invalid extractors JSON", err.Error())
 			return
 		}
 		for _, ex := range extractorObjs {
@@ -188,24 +177,20 @@ func (r *inputResource) Read(ctx context.Context, req resource.ReadRequest, resp
 	data.Global = types.BoolValue(in.Global)
 	data.Node = types.StringValue(in.Node)
 
-	// Convert configuration to map with dynamic values
-	configMap := make(map[string]interface{})
-	for k, v := range in.Configuration {
-		configMap[k] = v
+	// Set configuration back as JSON string
+	if in.Configuration != nil {
+		if b, err := json.Marshal(in.Configuration); err == nil {
+			data.Configuration = types.StringValue(string(b))
+		}
 	}
-	var diags diag.Diagnostics
-	data.Configuration, diags = types.MapValueFrom(ctx, types.DynamicType, configMap)
-	resp.Diagnostics.Append(diags...)
 
 	// Read extractors
 	if exList, err := r.client.ListInputExtractors(data.ID.ValueString()); err == nil {
-		// Normalize into list of objects with "data" map to keep stable schema
-		var items []map[string]interface{}
-		for _, ex := range exList {
-			items = append(items, map[string]interface{}{"data": ex})
+		if len(exList) == 0 {
+			data.Extractors = types.StringNull()
+		} else if b, err2 := json.Marshal(exList); err2 == nil {
+			data.Extractors = types.StringValue(string(b))
 		}
-		data.Extractors, diags = types.ListValueFrom(ctx, types.MapType{ElemType: types.DynamicType}, items)
-		resp.Diagnostics.Append(diags...)
 	} else {
 		resp.Diagnostics.AddWarning("Unable to read input extractors", err.Error())
 	}
@@ -235,17 +220,12 @@ func (r *inputResource) Update(ctx context.Context, req resource.UpdateRequest, 
 	ctx, cancel := context.WithTimeout(ctx, updateTimeout)
 	defer cancel()
 
-	// Convert configuration map (allow dynamic values)
+	// Convert configuration JSON to map
 	config := make(map[string]interface{})
-	if !data.Configuration.IsNull() && !data.Configuration.IsUnknown() {
-		tmp := make(map[string]interface{}, len(data.Configuration.Elements()))
-		diags = data.Configuration.ElementsAs(ctx, &tmp, false)
-		resp.Diagnostics.Append(diags...)
-		if resp.Diagnostics.HasError() {
+	if !data.Configuration.IsNull() && !data.Configuration.IsUnknown() && data.Configuration.ValueString() != "" {
+		if err := json.Unmarshal([]byte(data.Configuration.ValueString()), &config); err != nil {
+			resp.Diagnostics.AddAttributeError(path.Root("configuration"), "Invalid configuration JSON", err.Error())
 			return
-		}
-		for k, v := range tmp {
-			config[k] = v
 		}
 	}
 
@@ -272,11 +252,10 @@ func (r *inputResource) Update(ctx context.Context, req resource.UpdateRequest, 
 			}
 		}
 	}
-	if !data.Extractors.IsNull() && !data.Extractors.IsUnknown() {
+	if !data.Extractors.IsNull() && !data.Extractors.IsUnknown() && data.Extractors.ValueString() != "" {
 		var extractorObjs []map[string]interface{}
-		diags = data.Extractors.ElementsAs(ctx, &extractorObjs, false)
-		resp.Diagnostics.Append(diags...)
-		if resp.Diagnostics.HasError() {
+		if err := json.Unmarshal([]byte(data.Extractors.ValueString()), &extractorObjs); err != nil {
+			resp.Diagnostics.AddAttributeError(path.Root("extractors"), "Invalid extractors JSON", err.Error())
 			return
 		}
 		for _, ex := range extractorObjs {

@@ -246,6 +246,13 @@ func (r *indexSetResource) Create(ctx context.Context, req resource.CreateReques
 		return
 	}
 	data.ID = types.StringValue(created.ID)
+	// Ensure all computed values are known post-apply
+	// If API did not return Default explicitly, assume false
+	if created.Default {
+		data.Default = types.BoolValue(true)
+	} else {
+		data.Default = types.BoolValue(false)
+	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
