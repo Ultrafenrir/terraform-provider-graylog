@@ -199,18 +199,17 @@ jobs:
         run: |
           docker compose down -v || true
 
-      - name: Run acceptance tests (TF_ACC)
+      - name: Run acceptance tests (all Graylog versions)
         env:
           URL: http://127.0.0.1:9000/api
           TOKEN: ${{ secrets.GRAYLOG_TOKEN_BASE64 }}
-          TF_ACC: '1'
         run: |
           set -euo pipefail
           if [ -z "${TOKEN:-}" ]; then
             TOKEN=$(printf 'admin:admin' | base64)
             export TOKEN
           fi
-          make test-acc
+          make test-acc-all
 
       - name: Upload docker logs on failure
         if: failure()
