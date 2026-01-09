@@ -50,7 +50,7 @@ jobs:
             TOKEN=$(printf 'admin:admin' | base64)
             export TOKEN
           fi
-          make test-integration-all
+          make test-acc-all
 
       - name: Upload docker logs on failure
         if: failure()
