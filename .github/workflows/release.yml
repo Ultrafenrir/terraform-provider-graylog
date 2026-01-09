@@ -18,21 +18,20 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.22.x'
-          cache: false
+          cache: true
+          check-latest: true
 
       - name: Setup Docker Buildx (for completeness)
         uses: docker/setup-buildx-action@v3
 
-      - name: Cache Go modules
-        uses: actions/cache@v4
+      # Принудительная очистка возможного «битого» кэша/слоёв на раннере
+      - name: Pre-clean Go caches (best-effort)
+        run: |
+          set -euo pipefail
+          go env GOMODCACHE GOCACHE || true
+          rm -rf "$HOME/go/pkg/mod" || true
+          rm -rf "$HOME/.cache/go-build" || true
         continue-on-error: true
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
 
       - name: Ensure clean docker compose state
         run: |
@@ -45,6 +44,8 @@ jobs:
           TOKEN: ${{ secrets.GRAYLOG_TOKEN_BASE64 }}
         run: |
           set -euo pipefail
+          echo "Go env (cache paths):"
+          go env GOMODCACHE GOCACHE
           # If no token provided, fall back to default admin:admin used by tests
           if [ -z "${TOKEN:-}" ]; then
             TOKEN=$(printf 'admin:admin' | base64)
@@ -165,7 +166,10 @@ jobs:
           cd dist
           VERSION="${GITHUB_REF_NAME#v}"
           SUMS_FILE="terraform-provider-graylog_${VERSION}_SHA256SUMS"
-          gpg --batch --yes --armor --detach-sign --output "${SUMS_FILE}.sig" "${SUMS_FILE}"
+          # Terraform Registry требует бинарную отсоединённую подпись (не ASCII-armor)
+          gpg --batch --yes --detach-sign --output "${SUMS_FILE}.sig" "${SUMS_FILE}"
+          # Опциональная самопроверка подписи
+          gpg --verify "${SUMS_FILE}.sig" "${SUMS_FILE}" || true
           echo "Signature created: ${SUMS_FILE}.sig"
 
       - name: Create GitHub Release (single upload)
