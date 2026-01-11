@@ -1,0 +1,49 @@
+name: CI (push)
+
+on:
+  push:
+    branches:
+      - '**'
+
+jobs:
+  lint_unit_build:
+    name: Lint, Unit tests, Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Show Go environment
+        run: |
+          go version
+          go env
+
+      - name: Install deps
+        run: make deps
+
+      - name: Lint (go vet)
+        run: make lint
+
+      - name: Unit tests
+        env:
+          SHORT: 1
+          PKG: ./...
+          TAGS: ""
+        run: make test-unit
+
+      - name: Fast build
+        run: make build-quick
+
+      - name: Upload build artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-provider-graylog-${{ github.sha }}
+          path: build/terraform-provider-graylog
+          if-no-files-found: warn
