@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   acceptance:
-    name: Acceptance tests (Graylog ${{ matrix.graylog }})
+    name: Integration + Acceptance (Graylog ${{ matrix.graylog }})
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
@@ -50,8 +50,13 @@ jobs:
       - name: Prepare deps
         run: make deps
 
+      - name: Run integration tests on Graylog ${{ matrix.graylog }}
+        id: integration
+        run: |
+          make test-integration-one GRAYLOG_VERSION=${{ matrix.graylog }}
+
       - name: Run acceptance tests on Graylog ${{ matrix.graylog }}
-        id: acc
+        id: acceptance
         run: |
           make test-acc-one GRAYLOG_VERSION=${{ matrix.graylog }}
 
