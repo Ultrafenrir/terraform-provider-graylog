@@ -1,0 +1,98 @@
+name: CI (PR)
+
+on:
+  pull_request:
+    branches: [ "**" ]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  lint_unit:
+    name: Lint and unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Go env
+        run: go env
+
+      - name: Dependencies
+        run: make deps
+
+      - name: Lint (go vet)
+        run: make lint
+
+      - name: Unit tests
+        run: make test-unit
+
+  acceptance:
+    name: Acceptance tests (Graylog ${{ matrix.graylog }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    needs: lint_unit
+    strategy:
+      fail-fast: false
+      matrix:
+        graylog: [ '5.0', '6.0', '7.0' ]
+    env:
+      GRAYLOG_VERSION: ${{ matrix.graylog }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Show Docker and Compose versions
+        run: |
+          docker --version
+          docker compose version
+
+      - name: Increase Docker disk space (workaround)
+        run: |
+          echo "Disk usage before:" && df -h
+          docker system prune -af || true
+          echo "Disk usage after:" && df -h
+
+      - name: Prepare deps
+        run: make deps
+
+      - name: Run acceptance tests on Graylog ${{ matrix.graylog }}
+        id: acc
+        run: |
+          make test-acc-one GRAYLOG_VERSION=${{ matrix.graylog }}
+
+      - name: Dump docker-compose status (always)
+        if: always()
+        run: |
+          docker compose ps || true
+          docker compose logs --no-color mongo || true
+          docker compose logs --no-color opensearch || true
+          docker compose logs --no-color graylog || true
+
+      - name: Archive docker logs (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: graylog-docker-logs-${{ matrix.graylog }}
+          path: |
+            /home/runner/work/**/docker-compose.yml
+            **/*.test
+          if-no-files-found: warn
+
+      - name: Ensure graylog stack down (always)
+        if: always()
+        run: |
+          make graylog-down || true
