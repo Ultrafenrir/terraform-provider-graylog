@@ -1,4 +1,4 @@
-name: CI (push)
+name: CI (Push)
 
 on:
   push:
@@ -9,6 +9,7 @@ jobs:
   lint_unit_build:
     name: Lint, Unit tests, Build
     runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'push' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4

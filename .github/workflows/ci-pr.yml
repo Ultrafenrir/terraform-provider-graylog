@@ -3,7 +3,14 @@ name: CI (PR)
 on:
   pull_request:
     branches: [ "**" ]
+    types: [opened, synchronize, reopened]
   workflow_dispatch: {}
+
+# Отменяем предыдущие запуски этого workflow для одного и того же PR,
+# чтобы не гонять тяжёлые тесты параллельно при частых пушах
+concurrency:
+  group: pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
