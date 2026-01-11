@@ -4,15 +4,16 @@ package provider
 
 import (
 	"encoding/base64"
-	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
+	"fmt"
 	"os"
 	"testing"
 
 	ic "github.com/Ultrafenrir/terraform-provider-graylog/internal/client"
+	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 )
 
-func TestAccDashboard_basic(t *testing.T) {
-	// Capability pre-check: legacy dashboards CRUD может быть недоступен в некоторых версиях/образах.
+func TestAccDashboardWidget_basic(t *testing.T) {
+	// Capability pre-check: creating classic dashboards may be unsupported (405) on some versions/images
 	{
 		url := os.Getenv("URL")
 		token := os.Getenv("TOKEN")
@@ -23,7 +24,6 @@ func TestAccDashboard_basic(t *testing.T) {
 			token = base64.StdEncoding.EncodeToString([]byte(token))
 		}
 		c := ic.New(url, token)
-		// На GL 5.x и часто на 6.x endpoint /dashboards недоступен для создания (405)
 		if c.APIVersion == ic.APIV5 || c.APIVersion == ic.APIV6 {
 			t.Skip("Dashboard CRUD is not supported by this Graylog version/image; skipping acceptance test")
 		}
@@ -34,21 +34,32 @@ func TestAccDashboard_basic(t *testing.T) {
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				// Разные версии GL могут возвращать расширенные поля — разрешаем непустой план
 				ExpectNonEmptyPlan: true,
-				Config: testAccProviderConfig() + `
+				Config: testAccProviderConfig() + fmt.Sprintf(`
 resource "graylog_dashboard" "d" {
-  title       = "acc-dashboard"
-  description = "Acceptance dashboard"
+  title       = "acc-dash"
+  description = "Acceptance dash"
 }
-`,
+
+resource "graylog_dashboard_widget" "w" {
+  dashboard_id = graylog_dashboard.d.id
+  type         = "SEARCH_RESULT_COUNT"
+  description  = "acc widget"
+  cache_time   = 1
+  configuration = jsonencode({
+    timerange = { type = "relative", range = 300 }
+    query     = "*"
+    stream_id = null
+  })
+}
+`),
 				Check: resource.ComposeTestCheckFunc(
-					resource.TestCheckResourceAttrSet("graylog_dashboard.d", "id"),
-					resource.TestCheckResourceAttr("graylog_dashboard.d", "title", "acc-dashboard"),
+					resource.TestCheckResourceAttrSet("graylog_dashboard_widget.w", "id"),
+					resource.TestCheckResourceAttr("graylog_dashboard_widget.w", "type", "SEARCH_RESULT_COUNT"),
 				),
 			},
 			{
-				ResourceName:      "graylog_dashboard.d",
+				ResourceName:      "graylog_dashboard_widget.w",
 				ImportState:       true,
 				ImportStateVerify: true,
 			},

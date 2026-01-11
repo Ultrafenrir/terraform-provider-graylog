@@ -43,7 +43,20 @@ func (p *graylogProvider) Configure(ctx context.Context, req provider.ConfigureR
 }
 
 func (p *graylogProvider) Resources(_ context.Context) []func() resource.Resource {
-	return []func() resource.Resource{NewStreamResource, NewInputResource, NewIndexSetResource, NewPipelineResource, NewDashboardResource, NewAlertResource}
+	return []func() resource.Resource{
+		NewStreamResource,
+		NewInputResource,
+		NewIndexSetResource,
+		NewPipelineResource,
+		NewDashboardResource,
+		NewDashboardWidgetResource,
+		NewAlertResource,
+		NewEventNotificationResource,
+		NewLDAPSettingResource,
+		NewOutputResource,
+		NewRoleResource,
+		NewUserResource,
+	}
 }
 
 func (p *graylogProvider) DataSources(_ context.Context) []func() datasource.DataSource {
@@ -52,6 +65,9 @@ func (p *graylogProvider) DataSources(_ context.Context) []func() datasource.Dat
 		NewInputDataSource,
 		NewIndexSetDataSource,
 		NewIndexSetDefaultDataSource,
+		NewDashboardDataSource,
+		NewEventNotificationDataSource,
+		NewUserDataSource,
 	}
 }
 

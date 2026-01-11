@@ -21,3 +21,18 @@ data "graylog_stream" "by_title" {
 data "graylog_input" "by_title" {
   title = "kafka-json"
 }
+
+# Lookup a user by username
+data "graylog_user" "alice" {
+  username = "alice"
+}
+
+# Lookup a dashboard by id
+data "graylog_dashboard" "main" {
+  id = "<dashboard-id>"
+}
+
+# Lookup an event notification by id
+data "graylog_event_notification" "email" {
+  id = "<notification-id>"
+}

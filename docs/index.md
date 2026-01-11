@@ -14,6 +14,9 @@ The Graylog provider manages:
 - Pipelines (classic)
 - Dashboards (classic)
 - Alerts (Event Definitions)
+- Event Notifications (email/http/slack/pagerduty)
+- Users (local)
+- Dashboard Widgets (classic dashboards)
 
 ## Example Usage
 
