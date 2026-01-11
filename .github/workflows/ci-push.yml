@@ -5,11 +5,34 @@ on:
     branches:
       - '**'
 
+# Не даём одновременно крутиться нескольким пуш-запускам для одной ветки
+concurrency:
+  group: push-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  check_pr:
+    name: Check if branch has open PR
+    runs-on: ubuntu-latest
+    outputs:
+      has_pr: ${{ steps.detect.outputs.has_pr }}
+    steps:
+      - name: Detect open PR for this branch
+        id: detect
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const [owner, repo] = process.env.GITHUB_REPOSITORY.split('/');
+            const branch = process.env.GITHUB_REF.replace('refs/heads/', '');
+            const { data: prs } = await github.rest.pulls.list({ owner, repo, state: 'open', head: `${owner}:${branch}` });
+            const hasPR = prs && prs.length > 0;
+            core.setOutput('has_pr', hasPR ? 'true' : 'false');
+
   lint_unit_build:
     name: Lint, Unit tests, Build
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'push' }}
+    needs: check_pr
+    if: ${{ needs.check_pr.outputs.has_pr != 'true' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
