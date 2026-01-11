@@ -305,6 +305,223 @@ func (c *Client) ListStreamRules(streamID string) ([]StreamRule, error) {
 	return nil, errors.New("unexpected stream rules response format")
 }
 
+// ===== LDAP Settings =====
+// Graylog exposes global LDAP settings as a singleton resource.
+
+type LDAPSettings struct {
+	Enabled               bool                   `json:"enabled"`
+	SystemUsername        string                 `json:"system_username,omitempty"`
+	SystemPassword        string                 `json:"system_password,omitempty"`
+	LDAPURI               string                 `json:"ldap_uri,omitempty"`
+	SearchBase            string                 `json:"search_base,omitempty"`
+	SearchPattern         string                 `json:"search_pattern,omitempty"`
+	UserUniqueIDAttribute string                 `json:"user_unique_id_attribute,omitempty"`
+	GroupSearchBase       string                 `json:"group_search_base,omitempty"`
+	GroupSearchPattern    string                 `json:"group_search_pattern,omitempty"`
+	DefaultGroup          string                 `json:"default_group,omitempty"`
+	UseStartTLS           bool                   `json:"use_start_tls,omitempty"`
+	TrustAllCertificates  bool                   `json:"trust_all_certificates,omitempty"`
+	ActiveDirectory       bool                   `json:"active_directory,omitempty"`
+	DisplayNameAttribute  string                 `json:"display_name_attribute,omitempty"`
+	EmailAttribute        string                 `json:"email_attribute,omitempty"`
+	AdditionalFields      map[string]interface{} `json:"-"` // pass-through extras
+}
+
+// GetLDAPSettings fetches current LDAP settings.
+func (c *Client) GetLDAPSettings() (*LDAPSettings, error) {
+	path := "/system/ldap/settings"
+	if c.APIVersion == APIV6 || c.APIVersion == APIV7 {
+		path = "/api/system/ldap/settings"
+	}
+	resp, err := c.doRequest("GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var out LDAPSettings
+	if err := json.Unmarshal(resp, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// UpdateLDAPSettings updates LDAP settings (singleton upsert).
+func (c *Client) UpdateLDAPSettings(s *LDAPSettings) (*LDAPSettings, error) {
+	path := "/system/ldap/settings"
+	if c.APIVersion == APIV6 || c.APIVersion == APIV7 {
+		path = "/api/system/ldap/settings"
+	}
+	// Marshal as-is, Graylog ignores unknown fields.
+	resp, err := c.doRequest("PUT", path, s)
+	if err != nil {
+		return nil, err
+	}
+	var out LDAPSettings
+	_ = json.Unmarshal(resp, &out)
+	return &out, nil
+}
+
+// ===== Outputs =====
+
+type Output struct {
+	ID            string                 `json:"id,omitempty"`
+	Title         string                 `json:"title"`
+	Type          string                 `json:"type"`
+	Configuration map[string]interface{} `json:"configuration,omitempty"`
+}
+
+func (c *Client) CreateOutput(o *Output) (*Output, error) {
+	path := "/system/outputs"
+	if c.APIVersion == APIV6 || c.APIVersion == APIV7 {
+		path = "/api/system/outputs"
+	}
+	resp, err := c.doRequest("POST", path, o)
+	if err != nil {
+		return nil, err
+	}
+	var out Output
+	_ = json.Unmarshal(resp, &out)
+	return &out, nil
+}
+
+func (c *Client) GetOutput(id string) (*Output, error) {
+	path := fmt.Sprintf("/system/outputs/%s", id)
+	if c.APIVersion == APIV6 || c.APIVersion == APIV7 {
+		path = fmt.Sprintf("/api/system/outputs/%s", id)
+	}
+	resp, err := c.doRequest("GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var out Output
+	_ = json.Unmarshal(resp, &out)
+	return &out, nil
+}
+
+func (c *Client) UpdateOutput(id string, o *Output) (*Output, error) {
+	path := fmt.Sprintf("/system/outputs/%s", id)
+	if c.APIVersion == APIV6 || c.APIVersion == APIV7 {
+		path = fmt.Sprintf("/api/system/outputs/%s", id)
+	}
+	resp, err := c.doRequest("PUT", path, o)
+	if err != nil {
+		return nil, err
+	}
+	var out Output
+	_ = json.Unmarshal(resp, &out)
+	if out.ID == "" {
+		// Some versions return empty; keep id
+		out = *o
+		out.ID = id
+	}
+	return &out, nil
+}
+
+func (c *Client) DeleteOutput(id string) error {
+	path := fmt.Sprintf("/system/outputs/%s", id)
+	if c.APIVersion == APIV6 || c.APIVersion == APIV7 {
+		path = fmt.Sprintf("/api/system/outputs/%s", id)
+	}
+	_, err := c.doRequest("DELETE", path, nil)
+	return err
+}
+
+func (c *Client) AttachOutputToStream(streamID, outputID string) error {
+	// Preferred API: POST /streams/{streamID}/outputs with body {output_id}
+	path := fmt.Sprintf("/streams/%s/outputs", streamID)
+	if c.APIVersion == APIV6 || c.APIVersion == APIV7 {
+		path = fmt.Sprintf("/api/streams/%s/outputs", streamID)
+	}
+	body := map[string]string{"output_id": outputID}
+	if _, err := c.doRequest("POST", path, body); err == nil {
+		return nil
+	} else {
+		// Fallback to legacy endpoint: POST /streams/{id}/outputs/{outputId}
+		legacy := fmt.Sprintf("/streams/%s/outputs/%s", streamID, outputID)
+		if c.APIVersion == APIV6 || c.APIVersion == APIV7 {
+			legacy = fmt.Sprintf("/api/streams/%s/outputs/%s", streamID, outputID)
+		}
+		_, err2 := c.doRequest("POST", legacy, nil)
+		return err2
+	}
+}
+
+func (c *Client) DetachOutputFromStream(streamID, outputID string) error {
+	// DELETE /streams/{id}/outputs/{output_id}
+	path := fmt.Sprintf("/streams/%s/outputs/%s", streamID, outputID)
+	if c.APIVersion == APIV6 || c.APIVersion == APIV7 {
+		path = fmt.Sprintf("/api/streams/%s/outputs/%s", streamID, outputID)
+	}
+	_, err := c.doRequest("DELETE", path, nil)
+	return err
+}
+
+// ===== Roles =====
+
+type Role struct {
+	Name        string   `json:"name"`
+	Description string   `json:"description,omitempty"`
+	Permissions []string `json:"permissions,omitempty"`
+	ReadOnly    bool     `json:"read_only,omitempty"`
+}
+
+func (c *Client) CreateRole(r *Role) (*Role, error) {
+	path := "/roles"
+	if c.APIVersion == APIV6 || c.APIVersion == APIV7 {
+		path = "/api/roles"
+	}
+	resp, err := c.doRequest("POST", path, r)
+	if err != nil {
+		return nil, err
+	}
+	var out Role
+	_ = json.Unmarshal(resp, &out)
+	if out.Name == "" {
+		out = *r
+	}
+	return &out, nil
+}
+
+func (c *Client) GetRole(name string) (*Role, error) {
+	path := fmt.Sprintf("/roles/%s", name)
+	if c.APIVersion == APIV6 || c.APIVersion == APIV7 {
+		path = fmt.Sprintf("/api/roles/%s", name)
+	}
+	resp, err := c.doRequest("GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var out Role
+	_ = json.Unmarshal(resp, &out)
+	return &out, nil
+}
+
+func (c *Client) UpdateRole(name string, r *Role) (*Role, error) {
+	path := fmt.Sprintf("/roles/%s", name)
+	if c.APIVersion == APIV6 || c.APIVersion == APIV7 {
+		path = fmt.Sprintf("/api/roles/%s", name)
+	}
+	resp, err := c.doRequest("PUT", path, r)
+	if err != nil {
+		return nil, err
+	}
+	var out Role
+	_ = json.Unmarshal(resp, &out)
+	if out.Name == "" {
+		out = *r
+		out.Name = name
+	}
+	return &out, nil
+}
+
+func (c *Client) DeleteRole(name string) error {
+	path := fmt.Sprintf("/roles/%s", name)
+	if c.APIVersion == APIV6 || c.APIVersion == APIV7 {
+		path = fmt.Sprintf("/api/roles/%s", name)
+	}
+	_, err := c.doRequest("DELETE", path, nil)
+	return err
+}
+
 // CreateStreamRule creates a rule for the given stream and returns the created rule (with ID, if provided by API).
 func (c *Client) CreateStreamRule(streamID string, rule *StreamRule) (*StreamRule, error) {
 	base := fmt.Sprintf("/streams/%s/rules", streamID)
@@ -765,6 +982,91 @@ func (c *Client) DeleteDashboard(id string) error {
 	return err
 }
 
+func (c *Client) ListDashboards() ([]Dashboard, error) {
+	path := "/dashboards"
+	if c.APIVersion == APIV6 || c.APIVersion == APIV7 {
+		path = "/api/dashboards"
+	}
+	resp, err := c.doRequest("GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	// Graylog may return { dashboards: [...] } or a raw array depending on version
+	var arr []Dashboard
+	if len(resp) > 0 && resp[0] == '[' {
+		_ = json.Unmarshal(resp, &arr)
+		return arr, nil
+	}
+	var wrap struct {
+		Dashboards []Dashboard `json:"dashboards"`
+	}
+	if err := json.Unmarshal(resp, &wrap); err == nil && wrap.Dashboards != nil {
+		return wrap.Dashboards, nil
+	}
+	return arr, nil
+}
+
+// ---- Dashboard Widgets (classic dashboards) ----
+
+type DashboardWidget struct {
+	ID            string                 `json:"id,omitempty"`
+	Description   string                 `json:"description,omitempty"`
+	Type          string                 `json:"type"`
+	CacheTime     int                    `json:"cache_time,omitempty"`
+	Configuration map[string]interface{} `json:"config,omitempty"`
+}
+
+func (c *Client) CreateDashboardWidget(dashboardID string, w *DashboardWidget) (*DashboardWidget, error) {
+	path := fmt.Sprintf("/dashboards/%s/widgets", dashboardID)
+	if c.APIVersion == APIV6 || c.APIVersion == APIV7 {
+		path = fmt.Sprintf("/api/dashboards/%s/widgets", dashboardID)
+	}
+	resp, err := c.doRequest("POST", path, w)
+	if err != nil {
+		return nil, err
+	}
+	var out DashboardWidget
+	_ = json.Unmarshal(resp, &out)
+	return &out, nil
+}
+
+func (c *Client) GetDashboardWidget(dashboardID, widgetID string) (*DashboardWidget, error) {
+	path := fmt.Sprintf("/dashboards/%s/widgets/%s", dashboardID, widgetID)
+	if c.APIVersion == APIV6 || c.APIVersion == APIV7 {
+		path = fmt.Sprintf("/api/dashboards/%s/widgets/%s", dashboardID, widgetID)
+	}
+	resp, err := c.doRequest("GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var out DashboardWidget
+	_ = json.Unmarshal(resp, &out)
+	return &out, nil
+}
+
+func (c *Client) UpdateDashboardWidget(dashboardID, widgetID string, w *DashboardWidget) (*DashboardWidget, error) {
+	path := fmt.Sprintf("/dashboards/%s/widgets/%s", dashboardID, widgetID)
+	if c.APIVersion == APIV6 || c.APIVersion == APIV7 {
+		path = fmt.Sprintf("/api/dashboards/%s/widgets/%s", dashboardID, widgetID)
+	}
+	resp, err := c.doRequest("PUT", path, w)
+	if err != nil {
+		return nil, err
+	}
+	var out DashboardWidget
+	_ = json.Unmarshal(resp, &out)
+	return &out, nil
+}
+
+func (c *Client) DeleteDashboardWidget(dashboardID, widgetID string) error {
+	path := fmt.Sprintf("/dashboards/%s/widgets/%s", dashboardID, widgetID)
+	if c.APIVersion == APIV6 || c.APIVersion == APIV7 {
+		path = fmt.Sprintf("/api/dashboards/%s/widgets/%s", dashboardID, widgetID)
+	}
+	_, err := c.doRequest("DELETE", path, nil)
+	return err
+}
+
 // ---- Alerts (Event Definitions) ----
 
 type EventDefinition struct {
@@ -875,6 +1177,198 @@ func (c *Client) DeleteEventDefinition(id string) error {
 	path := fmt.Sprintf("/events/definitions/%s", id)
 	if c.APIVersion == APIV6 || c.APIVersion == APIV7 {
 		path = fmt.Sprintf("/api/events/definitions/%s", id)
+	}
+	_, err := c.doRequest("DELETE", path, nil)
+	return err
+}
+
+// ---- Event Notifications ----
+
+type EventNotification struct {
+	ID          string                 `json:"id,omitempty"`
+	Title       string                 `json:"title"`
+	Type        string                 `json:"type"`
+	Description string                 `json:"description,omitempty"`
+	Config      map[string]interface{} `json:"config"`
+}
+
+func (c *Client) CreateEventNotification(n *EventNotification) (*EventNotification, error) {
+	path := "/events/notifications"
+	if c.APIVersion == APIV6 || c.APIVersion == APIV7 {
+		path = "/api/events/notifications"
+	}
+	resp, err := c.doRequest("POST", path, n)
+	if err != nil {
+		return nil, err
+	}
+	var out EventNotification
+	_ = json.Unmarshal(resp, &out)
+	return &out, nil
+}
+
+func (c *Client) GetEventNotification(id string) (*EventNotification, error) {
+	path := fmt.Sprintf("/events/notifications/%s", id)
+	if c.APIVersion == APIV6 || c.APIVersion == APIV7 {
+		path = fmt.Sprintf("/api/events/notifications/%s", id)
+	}
+	resp, err := c.doRequest("GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var out EventNotification
+	_ = json.Unmarshal(resp, &out)
+	return &out, nil
+}
+
+func (c *Client) UpdateEventNotification(id string, n *EventNotification) (*EventNotification, error) {
+	path := fmt.Sprintf("/events/notifications/%s", id)
+	if c.APIVersion == APIV6 || c.APIVersion == APIV7 {
+		path = fmt.Sprintf("/api/events/notifications/%s", id)
+	}
+	resp, err := c.doRequest("PUT", path, n)
+	if err != nil {
+		return nil, err
+	}
+	var out EventNotification
+	_ = json.Unmarshal(resp, &out)
+	return &out, nil
+}
+
+func (c *Client) DeleteEventNotification(id string) error {
+	path := fmt.Sprintf("/events/notifications/%s", id)
+	if c.APIVersion == APIV6 || c.APIVersion == APIV7 {
+		path = fmt.Sprintf("/api/events/notifications/%s", id)
+	}
+	_, err := c.doRequest("DELETE", path, nil)
+	return err
+}
+
+func (c *Client) ListEventNotifications() ([]EventNotification, error) {
+	path := "/events/notifications"
+	if c.APIVersion == APIV6 || c.APIVersion == APIV7 {
+		path = "/api/events/notifications"
+	}
+	resp, err := c.doRequest("GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	// Can be { notifications: [...] } or array
+	var arr []EventNotification
+	if len(resp) > 0 && resp[0] == '[' {
+		_ = json.Unmarshal(resp, &arr)
+		return arr, nil
+	}
+	var wrap struct {
+		Notifications []EventNotification `json:"notifications"`
+	}
+	if err := json.Unmarshal(resp, &wrap); err == nil && wrap.Notifications != nil {
+		return wrap.Notifications, nil
+	}
+	return arr, nil
+}
+
+// ---- Users ----
+
+type User struct {
+	Username         string   `json:"username"`
+	FullName         string   `json:"full_name,omitempty"`
+	Email            string   `json:"email,omitempty"`
+	Roles            []string `json:"roles,omitempty"`
+	Timezone         string   `json:"timezone,omitempty"`
+	SessionTimeoutMs int64    `json:"session_timeout_ms,omitempty"`
+	Disabled         bool     `json:"disabled,omitempty"`
+	Password         string   `json:"password,omitempty"`
+}
+
+func (c *Client) CreateUser(u *User) (*User, error) {
+	path := "/users"
+	if c.APIVersion == APIV6 || c.APIVersion == APIV7 {
+		path = "/api/users"
+	}
+	// Graylog 5 expects first_name/last_name instead of full_name in CreateUserRequest
+	var body any = u
+	if c.APIVersion == APIV5 {
+		first := u.FullName
+		last := ""
+		// best-effort split "First Last" -> first_name/last_name
+		if idx := strings.Index(first, " "); idx > 0 {
+			last = strings.TrimSpace(first[idx+1:])
+			first = strings.TrimSpace(first[:idx])
+		}
+		m := map[string]any{
+			"username":           u.Username,
+			"first_name":         first,
+			"last_name":          last,
+			"email":              u.Email,
+			"roles":              u.Roles,
+			"permissions":        []string{},
+			"timezone":           u.Timezone,
+			"session_timeout_ms": u.SessionTimeoutMs,
+			"password":           u.Password,
+		}
+		// 'disabled' is not a recognized property in v5 CreateUserRequest; set via update if needed
+		body = m
+	}
+	resp, err := c.doRequest("POST", path, body)
+	if err != nil {
+		return nil, err
+	}
+	var out User
+	_ = json.Unmarshal(resp, &out)
+	// Some Graylog versions (e.g., 5.x) may not return the created entity body
+	if out.Username == "" {
+		return c.GetUser(u.Username)
+	}
+	return &out, nil
+}
+
+func (c *Client) GetUser(username string) (*User, error) {
+	path := fmt.Sprintf("/users/%s", username)
+	if c.APIVersion == APIV6 || c.APIVersion == APIV7 {
+		path = fmt.Sprintf("/api/users/%s", username)
+	}
+	resp, err := c.doRequest("GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var out User
+	_ = json.Unmarshal(resp, &out)
+	// Не возвращает пароль — и это нормально
+	out.Password = ""
+	return &out, nil
+}
+
+func (c *Client) UpdateUser(username string, u *User) (*User, error) {
+	path := fmt.Sprintf("/users/%s", username)
+	if c.APIVersion == APIV6 || c.APIVersion == APIV7 {
+		path = fmt.Sprintf("/api/users/%s", username)
+	}
+	// Копия без пароля для основного апдейта
+	body := *u
+	body.Password = ""
+	_, err := c.doRequest("PUT", path, &body)
+	if err != nil {
+		return nil, err
+	}
+	// Если задан пароль — выполнить отдельный вызов смены пароля
+	if u.Password != "" {
+		ppath := fmt.Sprintf("/users/%s/password", username)
+		if c.APIVersion == APIV6 || c.APIVersion == APIV7 {
+			ppath = fmt.Sprintf("/api/users/%s/password", username)
+		}
+		_, err := c.doRequest("PUT", ppath, map[string]string{"password": u.Password})
+		if err != nil {
+			return nil, err
+		}
+	}
+	// Вернуть актуальное состояние
+	return c.GetUser(username)
+}
+
+func (c *Client) DeleteUser(username string) error {
+	path := fmt.Sprintf("/users/%s", username)
+	if c.APIVersion == APIV6 || c.APIVersion == APIV7 {
+		path = fmt.Sprintf("/api/users/%s", username)
 	}
 	_, err := c.doRequest("DELETE", path, nil)
 	return err
