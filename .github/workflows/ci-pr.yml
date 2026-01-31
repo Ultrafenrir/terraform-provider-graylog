@@ -36,6 +36,11 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Setup Terraform CLI
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.6.6
+
       - name: Show Docker and Compose versions
         run: |
           docker --version
@@ -57,7 +62,12 @@ jobs:
 
       - name: Run acceptance tests on Graylog ${{ matrix.graylog }}
         id: acceptance
+        env:
+          TF_ACC_TERRAFORM_PATH: ${{ env.TF_ACC_TERRAFORM_PATH }}
         run: |
+          set -euo pipefail
+          echo "TF version: $(terraform version | head -n1)"
+          export TF_ACC_TERRAFORM_PATH="$(command -v terraform)"
           make test-acc-one GRAYLOG_VERSION=${{ matrix.graylog }}
 
       - name: Dump docker-compose status (always)

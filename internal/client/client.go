@@ -202,67 +202,74 @@ func (c *Client) CreateStream(s *Stream) (*Stream, error) {
 	if matchingType == "" {
 		matchingType = "AND"
 	}
-	// v7: CreateEntityRequest со snake_case entity по спецификации Swagger 1.2 (/api/api-docs/streams)
-	if c.APIVersion == APIV7 {
-		// CreateStreamRequest в v7: index_set_id, matching_type, title, description, rules, remove_matches_from_default_stream
-		// Минимально валидный payload: только обязательные поля
-		entity := map[string]any{
+
+	// Подготовим оба варианта тела запроса
+	// v7+ (CreateEntityRequest с обёрткой entity)
+	v7Body := map[string]any{
+		"entity": map[string]any{
 			"title":         s.Title,
 			"index_set_id":  s.IndexSetID,
 			"matching_type": matchingType,
-		}
-		body := map[string]any{"entity": entity}
-		resp, err := c.doRequest("POST", path, body)
-		if err != nil {
-			return nil, err
-		}
-		// Ответ в v7: {"stream_id": "..."}
-		var out Stream
-		var aux map[string]any
-		if err := json.Unmarshal(resp, &aux); err == nil {
-			if idRaw, ok := aux["stream_id"]; ok {
-				if id, ok := idRaw.(string); ok {
-					out.ID = id
-					return &out, nil
-				}
-			}
-		}
-		// Fallback: попробовать распаковать как Stream
-		_ = json.Unmarshal(resp, &out)
-		return &out, nil
+		},
 	}
-
-	// v5/v6: snake_case прямая форма (допускаем rules)
+	// v5/v6 (прямая форма snake_case, без disabled)
 	var rules any = s.Rules
 	if rules == nil {
 		rules = []any{}
 	}
-	// На Graylog 5.x создание не принимает поле disabled — не отправляем его при create
-	body := map[string]any{
+	legacyBody := map[string]any{
 		"title":         s.Title,
 		"description":   s.Description,
 		"index_set_id":  s.IndexSetID,
 		"matching_type": matchingType,
 		"rules":         rules,
 	}
-	resp, err := c.doRequest("POST", path, body)
-	if err != nil {
-		return nil, err
+
+	// Стратегия: сначала пробуем v7-совместимый вариант, затем фолбэк на legacy.
+	tryBodies := []map[string]any{v7Body, legacyBody}
+	// Если клиент уверен, что это v5/v6 — попробуем сперва legacy
+	if c.APIVersion == APIV5 || c.APIVersion == APIV6 {
+		tryBodies = []map[string]any{legacyBody, v7Body}
 	}
-	var out Stream
-	// Graylog 5.x may return {"stream_id": "..."} instead of full stream
-	var aux map[string]any
-	if err := json.Unmarshal(resp, &aux); err == nil {
-		if idRaw, ok := aux["stream_id"]; ok {
-			if id, ok := idRaw.(string); ok {
-				out.ID = id
-				return &out, nil
+
+	var lastResp []byte
+	for i, body := range tryBodies {
+		resp, err := c.doRequest("POST", path, body)
+		if err != nil {
+			// При явной ошибке 4xx попробуем следующий вариант тела
+			lastResp = []byte(err.Error())
+			if i+1 < len(tryBodies) {
+				continue
+			}
+			return nil, err
+		}
+		// Успех: попробуем извлечь stream_id из разных форматов
+		var out Stream
+		var aux map[string]any
+		if json.Unmarshal(resp, &aux) == nil {
+			if idRaw, ok := aux["stream_id"]; ok {
+				if id, ok := idRaw.(string); ok {
+					out.ID = id
+					return &out, nil
+				}
+			}
+			// иногда ответ может быть {"stream": {"id": "..."}}
+			if stream, ok := aux["stream"].(map[string]any); ok {
+				if id, ok := stream["id"].(string); ok && id != "" {
+					out.ID = id
+					return &out, nil
+				}
 			}
 		}
+		// Fallback: распакуем напрямую
+		_ = json.Unmarshal(resp, &out)
+		if out.ID != "" {
+			return &out, nil
+		}
+		// если дошли сюда — сохраним тело и продолжим (на случай второго обхода)
+		lastResp = resp
 	}
-	// Fallback: try to unmarshal as Stream
-	_ = json.Unmarshal(resp, &out)
-	return &out, nil
+	return nil, fmt.Errorf("failed to create stream: unexpected response %s", string(lastResp))
 }
 
 func (c *Client) GetStream(id string) (*Stream, error) {

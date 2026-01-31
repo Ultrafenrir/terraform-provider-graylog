@@ -199,6 +199,11 @@ jobs:
           go-version: '1.22.x'
           cache: false
 
+      - name: Setup Terraform CLI
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.6.6
+
       - name: Ensure clean docker compose state
         run: |
           docker compose down -v || true
@@ -209,6 +214,8 @@ jobs:
           TOKEN: ${{ secrets.GRAYLOG_TOKEN_BASE64 }}
         run: |
           set -euo pipefail
+          echo "TF version: $(terraform version | head -n1)"
+          export TF_ACC_TERRAFORM_PATH="$(command -v terraform)"
           if [ -z "${TOKEN:-}" ]; then
             TOKEN=$(printf 'admin:admin' | base64)
             export TOKEN
