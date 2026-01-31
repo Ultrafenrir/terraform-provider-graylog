@@ -208,6 +208,7 @@ func (c *Client) CreateStream(s *Stream) (*Stream, error) {
 	v7Body := map[string]any{
 		"entity": map[string]any{
 			"title":         s.Title,
+			"description":   s.Description,
 			"index_set_id":  s.IndexSetID,
 			"matching_type": matchingType,
 		},
@@ -1452,10 +1453,11 @@ func (c *Client) CreateEventDefinition(ed *EventDefinition) (*EventDefinition, e
 			"backlog_size":    0,
 		}
 	}
-	var body any = ed
+	// Сформируем базовый payload для запроса с учётом особенностей v5
+	var baseBody any = ed
 	if c.APIVersion == APIV5 {
 		// GL5 expects snake_case fields key_spec/notification_settings
-		req := map[string]any{
+		baseBody = map[string]any{
 			"title":       ed.Title,
 			"description": ed.Description,
 			"priority":    ed.Priority,
@@ -1466,15 +1468,32 @@ func (c *Client) CreateEventDefinition(ed *EventDefinition) (*EventDefinition, e
 			"notification_settings": ed.NotificationSettings,
 			"key_spec":              ed.KeySpec,
 		}
-		body = req
 	}
-	resp, err := c.doRequest("POST", path, body)
-	if err != nil {
-		return nil, err
+
+	// Для устойчивости: пробуем оба варианта тела запроса вне зависимости от детекции версии,
+	// меняя порядок приоритетов в зависимости от предположения о версии.
+	tryBodies := []any{
+		map[string]any{"entity": baseBody}, // v7-подобный вариант
+		baseBody,                           // legacy/plain вариант
 	}
-	var out EventDefinition
-	_ = json.Unmarshal(resp, &out)
-	return &out, nil
+	if c.APIVersion == APIV5 || c.APIVersion == APIV6 {
+		tryBodies = []any{baseBody, map[string]any{"entity": baseBody}}
+	}
+	var lastResp []byte
+	for i, b := range tryBodies {
+		resp, err := c.doRequest("POST", path, b)
+		if err != nil {
+			lastResp = []byte(err.Error())
+			if i+1 < len(tryBodies) {
+				continue
+			}
+			return nil, err
+		}
+		var out EventDefinition
+		_ = json.Unmarshal(resp, &out)
+		return &out, nil
+	}
+	return nil, fmt.Errorf("failed to create event definition: unexpected response %s", string(lastResp))
 }
 
 func (c *Client) GetEventDefinition(id string) (*EventDefinition, error) {
