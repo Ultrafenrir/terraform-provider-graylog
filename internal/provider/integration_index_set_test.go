@@ -37,15 +37,22 @@ func TestIntegration_IndexSetCRUD(t *testing.T) {
 	// Give Graylog a little time just in case after healthcheck
 	time.Sleep(2 * time.Second)
 
-	// Create
-	created, err := c.CreateIndexSet(&client.IndexSet{
+	// Prepare payload; Graylog 7 requires explicit replicas/indexOptimizationDisabled/isWritable
+	idx := &client.IndexSet{
 		Title:       "tf-prov-itest",
 		Description: "integration test index set",
 		IndexPrefix: "tf_itest_" + time.Now().Format("150405"),
 		Shards:      1,
 		Replicas:    0,
 		Default:     false,
-	})
+	}
+	if c.APIVersion == client.APIV7 {
+		idx.Replicas = 1
+		idx.IsWritable = true
+		idx.IndexOptimizationDisabled = true
+	}
+	// Create
+	created, err := c.CreateIndexSet(idx)
 	if err != nil {
 		t.Fatalf("CreateIndexSet error: %v", err)
 	}

@@ -6,7 +6,7 @@ description: |-
 
 # graylog_input (Resource)
 
-Manages a Graylog input. Compatible with Graylog v5/v6/v7. The `configuration` attribute is a free-form map supporting strings, numbers, booleans, lists and nested objects, covering all input types (including Kafka inputs). Extractors can be managed alongside the input.
+Manages a Graylog input. Compatible with Graylog v5/v6/v7. The `configuration` attribute is passed as JSON string (use `jsonencode({...})`) supporting strings, numbers, booleans, lists and nested objects, covering all input types (including Kafka inputs). Extractors can be managed alongside the input via a JSON-encoded list.
 
 ## Example Usage
 
@@ -16,13 +16,13 @@ resource "graylog_input" "kafka_json" {
   type   = "org.graylog.plugins.kafka.input.KafkaJsonInput"
   global = true
 
-  configuration = {
+  configuration = jsonencode({
     bootstrap_servers        = ["localhost:9092"]
     topic_filter             = "logs-*"
     allow_auto_create_topics = false
-  }
+  })
 
-  extractors = [
+  extractors = jsonencode([
     {
       type         = "regex"
       title        = "extract user"
@@ -30,7 +30,7 @@ resource "graylog_input" "kafka_json" {
       source_field = "message"
       regex_value  = "user=(\\w+)"
     }
-  ]
+  ])
 }
 ```
 
@@ -40,8 +40,8 @@ resource "graylog_input" "kafka_json" {
 - `type` (String, Required) — Fully qualified input class (e.g. `org.graylog2.inputs.syslog.udp.SyslogUDPInput`).
 - `global` (Boolean, Optional) — Whether the input is global.
 - `node` (String, Optional) — Node ID to run the input on when not global.
-- `configuration` (Map(dynamic), Optional) — Free-form configuration map. Values may be strings, numbers, booleans, lists, or nested objects.
-- `extractors` (List(Map(any)), Optional) — List of extractor objects passed to Graylog as-is. Use either top-level fields or a nested `data` map.
+- `configuration` (String(JSON), Optional) — JSON-encoded configuration object. Values may be strings, numbers, booleans, lists, or nested objects.
+- `extractors` (String(JSON), Optional) — JSON-encoded list of extractor objects. Use either top-level fields or a nested `data` map.
 - `timeouts` (Block, Optional) — Customize create/update/delete timeouts.
 
 ## Attributes Reference

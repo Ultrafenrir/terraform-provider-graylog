@@ -42,6 +42,11 @@ services:
       - GRAYLOG_HTTP_EXTERNAL_URI=http://127.0.0.1:9000/
       - GRAYLOG_ELASTICSEARCH_HOSTS=http://opensearch:9200
       - GRAYLOG_SERVER_JAVA_OPTS=-Xms512m -Xmx512m
+      # Enable email transport to allow creating email notifications in tests
+      - GRAYLOG_TRANSPORT_EMAIL_ENABLED=true
+      - GRAYLOG_TRANSPORT_EMAIL_HOSTNAME=localhost
+      - GRAYLOG_TRANSPORT_EMAIL_PORT=25
+      - GRAYLOG_TRANSPORT_EMAIL_FROM_EMAIL=graylog@example.com
     ports:
       - "9000:9000"   # Web UI + REST API (/api)
       - "12201:12201" # GELF UDP

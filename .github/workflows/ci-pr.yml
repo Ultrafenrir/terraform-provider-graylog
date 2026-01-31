@@ -1,0 +1,94 @@
+name: CI (PR)
+
+on:
+  pull_request:
+    branches: [ "**" ]
+    types: [opened, synchronize, reopened]
+  workflow_dispatch: {}
+
+# Отменяем предыдущие запуски этого workflow для одного и того же PR,
+# чтобы не гонять тяжёлые тесты параллельно при частых пушах
+concurrency:
+  group: pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  acceptance:
+    name: Integration + Acceptance (Graylog ${{ matrix.graylog }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        graylog: [ '5.0', '6.0', '7.0' ]
+    env:
+      GRAYLOG_VERSION: ${{ matrix.graylog }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Setup Terraform CLI
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.6.6
+
+      - name: Show Docker and Compose versions
+        run: |
+          docker --version
+          docker compose version
+
+      - name: Increase Docker disk space (workaround)
+        run: |
+          echo "Disk usage before:" && df -h
+          docker system prune -af || true
+          echo "Disk usage after:" && df -h
+
+      - name: Prepare deps
+        run: make deps
+
+      - name: Run integration tests on Graylog ${{ matrix.graylog }}
+        id: integration
+        run: |
+          make test-integration-one GRAYLOG_VERSION=${{ matrix.graylog }}
+
+      - name: Run acceptance tests on Graylog ${{ matrix.graylog }}
+        id: acceptance
+        env:
+          TF_ACC_TERRAFORM_PATH: ${{ env.TF_ACC_TERRAFORM_PATH }}
+        run: |
+          set -euo pipefail
+          echo "TF version: $(terraform version | head -n1)"
+          export TF_ACC_TERRAFORM_PATH="$(command -v terraform)"
+          make test-acc-one GRAYLOG_VERSION=${{ matrix.graylog }}
+
+      - name: Dump docker-compose status (always)
+        if: always()
+        run: |
+          docker compose ps || true
+          docker compose logs --no-color mongo || true
+          docker compose logs --no-color opensearch || true
+          docker compose logs --no-color graylog || true
+
+      - name: Archive docker logs (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: graylog-docker-logs-${{ matrix.graylog }}
+          path: |
+            /home/runner/work/**/docker-compose.yml
+            **/*.test
+          if-no-files-found: warn
+
+      - name: Ensure graylog stack down (always)
+        if: always()
+        run: |
+          make graylog-down || true

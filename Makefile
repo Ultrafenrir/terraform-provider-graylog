@@ -164,12 +164,13 @@ graylog-wait:
 test-integration: graylog-up graylog-wait
 	@echo "Running integration tests..."
 	@# Basic auth admin:admin in base64
-	@bash -c '\
-	  set -e; \
+	@bash -lc '\
+	  set -euo pipefail; set -x; \
 	  GL_BASIC=$$(printf "admin:admin" | base64); \
-	  export URL="$${URL:-http://127.0.0.1:9000/api}"; \
-	  export TOKEN="$${TOKEN:-$$GL_BASIC}"; \
+	  URL="$${URL:-http://127.0.0.1:9000/api}"; \
+	  TOKEN="$${TOKEN:-$$GL_BASIC}"; \
 	  RUN_FLAG=""; [ -n "$(RUN)" ] && RUN_FLAG="-run $(RUN)"; \
+	  export URL TOKEN; \
 	  PKG_EFF="$(PKG)"; [ -z "$$PKG_EFF" ] && PKG_EFF="./internal/..."; \
 	  go test -v -tags=integration $$RUN_FLAG -timeout $(TIMEOUT) $$PKG_EFF'; \
 	status=$$?; \

@@ -4,8 +4,6 @@ package provider
 
 import (
 	"encoding/base64"
-	"encoding/json"
-	"net/http"
 	"os"
 	"testing"
 	"time"
@@ -26,37 +24,16 @@ func TestIntegration_StreamCRUD(t *testing.T) {
 
 	time.Sleep(2 * time.Second)
 
-	// Lookup default index set ID (required by Graylog 5.x API)
-	listPath := "/system/indices/index_sets"
-	if c.APIVersion == client.APIV6 || c.APIVersion == client.APIV7 {
-		listPath = "/api/system/indices/index_sets"
-	}
-	req, _ := http.NewRequest("GET", c.BaseURL+listPath, nil)
-	req.Header.Set("Authorization", "Basic "+token)
-	req.Header.Set("X-Requested-By", "terraform-provider-test")
-	resp, err := c.HTTP.Do(req)
+	// Lookup default index set ID using client (handles version-specific paths)
+	sets, err := c.ListIndexSets()
 	if err != nil {
-		t.Fatalf("list index sets request error: %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		t.Fatalf("unexpected list index sets status: %d", resp.StatusCode)
-	}
-	var payload map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		t.Fatalf("decode index sets response: %v", err)
+		t.Fatalf("list index sets error: %v", err)
 	}
 	var defaultIS string
-	if arr, ok := payload["index_sets"].([]any); ok {
-		for _, it := range arr {
-			if m, ok := it.(map[string]any); ok {
-				if def, _ := m["default"].(bool); def {
-					if id, ok := m["id"].(string); ok {
-						defaultIS = id
-						break
-					}
-				}
-			}
+	for _, is := range sets {
+		if is.Default {
+			defaultIS = is.ID
+			break
 		}
 	}
 	if defaultIS == "" {
