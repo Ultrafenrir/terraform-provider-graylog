@@ -1,6 +1,6 @@
 # Graylog Terraform Provider
 
-This provider manages Graylog resources: streams (with rules), inputs (with extractors), index sets, pipelines, dashboards (classic), dashboard widgets, users, event notifications, and alerts (Event Definitions). It targets Graylog v5, v6, and v7. API prefix `/api` is applied automatically for v6/v7 where needed.
+This provider manages Graylog resources: streams (with rules), inputs (with extractors), index sets, pipelines, dashboards, and alerts (Event Definitions). It targets Graylog v5, v6, and v7. API prefix `/api` is applied automatically for v6/v7 where needed.
 
 ## Installation (Terraform Registry)
 
@@ -28,20 +28,27 @@ provider "graylog" {
 }
 ```
 
-See the `examples/` directory for standalone, copy‑pasteable snippets for each resource type (inputs, streams, pipelines, dashboards/widgets, alerts/notifications, users, data sources).
+See the `examples/` directory for standalone, copy‑pasteable snippets for each resource type.
+
+## Supported Graylog versions
+
+The provider is tested and supported against the following Graylog major versions:
+
+- Graylog 5.x
+- Graylog 6.x
+- Graylog 7.x
+
+CI runs both integration and acceptance tests against all listed versions via docker-compose to ensure compatibility.
 
 ## Examples
 
 Examples are organized by resource type:
-- examples/basic.tf — single file covering provider config and main resources.
+- examples/basic.tf — single file covering provider config and all main resources.
 - examples/inputs/*.tf — inputs like Kafka, Syslog UDP, GELF TCP, Beats, Raw TCP/UDP, HTTP JSON. Each uses a flexible `configuration` map and may include `extractors`.
 - examples/streams/*.tf — streams with multiple rules (integer `type` enum); includes `inverted` examples.
 - examples/pipelines/*.tf — pipelines; `source` contains a full Graylog pipeline definition.
-- examples/dashboards/*.tf — classic dashboards and widgets.
-- examples/alerts/*.tf — alert/Event Definition examples; see also `examples/alerts/alert_with_notification.tf` for linking Event Definition with a Notification.
-- examples/users/*.tf — local users CRUD.
-- examples/events/*.tf — event notifications (email/http/slack/pagerduty).
-- examples/data_sources.tf — examples of lookups (inputs/streams/index sets/users/dashboards/notifications).
+- examples/dashboards/*.tf — classic dashboards (title/description).
+- examples/alerts/*.tf — alert/Event Definition examples with pass‑through `config`.
 
 Notes:
 - Stream rule `type` is an integer Graylog enum. Values vary by Graylog version (e.g., equals=1, regex=3). Consult your Graylog docs.
@@ -95,49 +102,6 @@ Integration tests run against a real Graylog via docker‑compose:
    The target brings up Graylog, waits for readiness, then runs `go test` with the `integration` tag.
 
 Note: Integration tests are marked with `//go:build integration` and are not executed by a regular `make test`.
-
-## Acceptance tests
-
-Acceptance tests use Terraform Plugin Testing framework and require a running Graylog (you can reuse docker‑compose targets):
-
-Run once against current Graylog version from docker‑compose:
-
-```bash
-make test-acc-integration
-```
-
-Run across 5/6/7 sequentially:
-
-```bash
-make test-acc-all
-```
-
-Acceptance tests are marked with `//go:build acceptance`.
-
-## Resources & Data Sources overview
-
-Resources:
-- Streams (with rules): `graylog_stream`
-- Inputs (with extractors): `graylog_input`
-- Index sets: `graylog_index_set`
-- Pipelines: `graylog_pipeline`
-- Dashboards (classic): `graylog_dashboard`
-- Dashboard Widgets (classic): `graylog_dashboard_widget`
-- Alerts (Event Definitions): `graylog_alert`
-- Event Notifications: `graylog_event_notification`
-- Users (local): `graylog_user`
-
-Data Sources:
-- `graylog_stream` — by title
-- `graylog_input` — by title
-- `graylog_index_set` — by title
-- `graylog_index_set_default`
-- `graylog_dashboard` — by id or title
-- `graylog_event_notification` — by id or title
-- `graylog_user` — by username
-
-Notes:
-- For `graylog_dashboard` and `graylog_event_notification`, you can provide either `id` or `title` (exact match) to lookup.
 
 ## Releases and publishing
 
