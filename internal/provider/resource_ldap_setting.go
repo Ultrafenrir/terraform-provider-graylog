@@ -79,7 +79,7 @@ func (r *ldapSettingResource) Create(ctx context.Context, req resource.CreateReq
 		return
 	}
 	// Map to client struct and update
-	_, err := r.client.UpdateLDAPSettings(&client.LDAPSettings{
+	_, err := r.client.WithContext(ctx).UpdateLDAPSettings(&client.LDAPSettings{
 		Enabled:               data.Enabled.ValueBool(),
 		SystemUsername:        data.SystemUsername.ValueString(),
 		SystemPassword:        data.SystemPassword.ValueString(),
@@ -110,7 +110,7 @@ func (r *ldapSettingResource) Read(ctx context.Context, req resource.ReadRequest
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	s, err := r.client.GetLDAPSettings()
+	s, err := r.client.WithContext(ctx).GetLDAPSettings()
 	if err != nil {
 		resp.Diagnostics.AddError("Error reading LDAP settings", err.Error())
 		return
@@ -140,7 +140,7 @@ func (r *ldapSettingResource) Update(ctx context.Context, req resource.UpdateReq
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	if _, err := r.client.UpdateLDAPSettings(&client.LDAPSettings{
+	if _, err := r.client.WithContext(ctx).UpdateLDAPSettings(&client.LDAPSettings{
 		Enabled:               data.Enabled.ValueBool(),
 		SystemUsername:        data.SystemUsername.ValueString(),
 		SystemPassword:        data.SystemPassword.ValueString(),
@@ -166,7 +166,7 @@ func (r *ldapSettingResource) Update(ctx context.Context, req resource.UpdateReq
 func (r *ldapSettingResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
 	// Best-effort: disable LDAP and clear bind creds
 	_ = req // not needed to read state
-	_, err := r.client.UpdateLDAPSettings(&client.LDAPSettings{Enabled: false})
+	_, err := r.client.WithContext(ctx).UpdateLDAPSettings(&client.LDAPSettings{Enabled: false})
 	if err != nil {
 		// Не считаем критичным, просто удаляем из стейта
 	}

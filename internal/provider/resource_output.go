@@ -63,7 +63,7 @@ func (r *outputResource) Create(ctx context.Context, req resource.CreateRequest,
 			return
 		}
 	}
-	created, err := r.client.CreateOutput(&client.Output{
+	created, err := r.client.WithContext(ctx).CreateOutput(&client.Output{
 		Title:         data.Title.ValueString(),
 		Type:          data.Type.ValueString(),
 		Configuration: cfg,
@@ -78,7 +78,7 @@ func (r *outputResource) Create(ctx context.Context, req resource.CreateRequest,
 		if s.IsNull() || s.IsUnknown() || s.ValueString() == "" {
 			continue
 		}
-		if err := r.client.AttachOutputToStream(s.ValueString(), data.ID.ValueString()); err != nil {
+		if err := r.client.WithContext(ctx).AttachOutputToStream(s.ValueString(), data.ID.ValueString()); err != nil {
 			resp.Diagnostics.AddError("Error attaching output to stream", err.Error())
 			return
 		}
@@ -92,7 +92,7 @@ func (r *outputResource) Read(ctx context.Context, req resource.ReadRequest, res
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	o, err := r.client.GetOutput(data.ID.ValueString())
+	o, err := r.client.WithContext(ctx).GetOutput(data.ID.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError("Error reading output", err.Error())
 		return
@@ -121,7 +121,7 @@ func (r *outputResource) Update(ctx context.Context, req resource.UpdateRequest,
 			return
 		}
 	}
-	if _, err := r.client.UpdateOutput(plan.ID.ValueString(), &client.Output{
+	if _, err := r.client.WithContext(ctx).UpdateOutput(plan.ID.ValueString(), &client.Output{
 		Title:         plan.Title.ValueString(),
 		Type:          plan.Type.ValueString(),
 		Configuration: cfg,
@@ -147,7 +147,7 @@ func (r *outputResource) Update(ctx context.Context, req resource.UpdateRequest,
 	// detach
 	for id := range oldSet {
 		if _, ok := newSet[id]; !ok {
-			if err := r.client.DetachOutputFromStream(id, plan.ID.ValueString()); err != nil {
+			if err := r.client.WithContext(ctx).DetachOutputFromStream(id, plan.ID.ValueString()); err != nil {
 				resp.Diagnostics.AddError("Error detaching output from stream", err.Error())
 				return
 			}
@@ -156,7 +156,7 @@ func (r *outputResource) Update(ctx context.Context, req resource.UpdateRequest,
 	// attach
 	for id := range newSet {
 		if _, ok := oldSet[id]; !ok {
-			if err := r.client.AttachOutputToStream(id, plan.ID.ValueString()); err != nil {
+			if err := r.client.WithContext(ctx).AttachOutputToStream(id, plan.ID.ValueString()); err != nil {
 				resp.Diagnostics.AddError("Error attaching output to stream", err.Error())
 				return
 			}
@@ -172,7 +172,7 @@ func (r *outputResource) Delete(ctx context.Context, req resource.DeleteRequest,
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	if err := r.client.DeleteOutput(data.ID.ValueString()); err != nil {
+	if err := r.client.WithContext(ctx).DeleteOutput(data.ID.ValueString()); err != nil {
 		resp.Diagnostics.AddError("Error deleting output", err.Error())
 		return
 	}

@@ -1,6 +1,8 @@
-# Graylog Terraform Provider
+# Graylog Terraform Provider — Terraform Graylog automation
 
-This provider manages Graylog resources: streams (with rules), inputs (with extractors), index sets, pipelines, dashboards, and alerts (Event Definitions). It targets Graylog v5, v6, and v7. API prefix `/api` is applied automatically for v6/v7 where needed.
+Production‑ready provider to automate Graylog operations with Terraform. Manage streams (and rules), inputs (and extractors), index sets, pipelines, dashboards, alerts (Event Definitions) and more — as code. Works with Graylog v5, v6 and v7. For v6/v7 the `/api` prefix is handled automatically where required.
+
+Search hints (SEO): Terraform Graylog provider, graylog terraform, terraform graylog, Graylog operation automation, graylog automation, terrafrom graylog provider, graylog teraform, terrafrom graylog.
 
 ## Installation (Terraform Registry)
 
@@ -30,6 +32,12 @@ provider "graylog" {
 
 See the `examples/` directory for standalone, copy‑pasteable snippets for each resource type.
 
+## Why this provider (benefits)
+- Terraform Graylog automation: declarative changes, code review, and drift detection for Graylog.
+- Safe upgrades between Graylog 5 → 6 → 7 with a single Terraform state (covered by migration tests).
+- Flexible resources: inputs with free‑form configuration and extractors; streams with rules; index sets and pipelines.
+- Robust error handling with structured JSON parsing for clearer diagnostics from Graylog API.
+
 ## Supported Graylog versions
 
 The provider is tested and supported against the following Graylog major versions:
@@ -38,7 +46,7 @@ The provider is tested and supported against the following Graylog major version
 - Graylog 6.x
 - Graylog 7.x
 
-CI runs both integration and acceptance tests against all listed versions via docker-compose to ensure compatibility.
+CI runs integration, acceptance, and migration tests against all listed versions via docker‑compose to ensure compatibility.
 
 ## Examples
 
@@ -102,6 +110,26 @@ Integration tests run against a real Graylog via docker‑compose:
    The target brings up Graylog, waits for readiness, then runs `go test` with the `integration` tag.
 
 Note: Integration tests are marked with `//go:build integration` and are not executed by a regular `make test`.
+
+## Migration tests (Terraform state 5→6→7)
+
+To validate state migration across Graylog major versions (5 → 6 → 7) using a single Terraform state:
+
+1. Prereqs: Docker/Compose; Terraform CLI; ports 9000/9200 available.
+2. Run:
+   ```bash
+   make test-migration
+   ```
+   The target will:
+   - Build the provider locally and configure Terraform dev overrides.
+   - Start Graylog 5.x via docker-compose, apply `test/migration/step1` and ensure no drift.
+   - In-place upgrade to 6.x (preserving volumes), apply `step2`, ensure no drift.
+   - Upgrade to 7.x, apply `step3`, ensure no drift; optionally destroy at the end.
+
+Notes:
+- The migration covers all supported resources across the steps: inputs, streams (+rules), index sets, pipelines, dashboards, dashboard widgets, alerts (Event Definitions), event notifications, outputs, LDAP settings, roles, and users.
+- Shared local backend is used: state file at `test/migration/shared/terraform.tfstate`.
+- You can preserve resources after a successful run for debugging by setting `SKIP_DESTROY=1`.
 
 ## Releases and publishing
 

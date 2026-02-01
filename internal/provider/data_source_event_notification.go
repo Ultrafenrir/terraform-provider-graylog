@@ -57,9 +57,9 @@ func (d *eventNotificationDataSource) Read(ctx context.Context, req datasource.R
 	var n *client.EventNotification
 	var err error
 	if !data.ID.IsNull() && data.ID.ValueString() != "" {
-		n, err = d.client.GetEventNotification(data.ID.ValueString())
+		n, err = d.client.WithContext(ctx).GetEventNotification(data.ID.ValueString())
 	} else if !data.Title.IsNull() && data.Title.ValueString() != "" {
-		list, lerr := d.client.ListEventNotifications()
+		list, lerr := d.client.WithContext(ctx).ListEventNotifications()
 		if lerr != nil {
 			err = lerr
 		} else {

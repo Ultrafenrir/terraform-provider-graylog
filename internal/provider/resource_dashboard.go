@@ -70,7 +70,7 @@ func (r *dashboardResource) Create(ctx context.Context, req resource.CreateReque
 	ctx, cancel := context.WithTimeout(ctx, createTimeout)
 	defer cancel()
 
-	created, err := r.client.CreateDashboard(&client.Dashboard{
+	created, err := r.client.WithContext(ctx).CreateDashboard(&client.Dashboard{
 		Title:       data.Title.ValueString(),
 		Description: data.Description.ValueString(),
 	})
@@ -89,7 +89,7 @@ func (r *dashboardResource) Read(ctx context.Context, req resource.ReadRequest, 
 		return
 	}
 
-	d, err := r.client.GetDashboard(data.ID.ValueString())
+	d, err := r.client.WithContext(ctx).GetDashboard(data.ID.ValueString())
 	if err != nil {
 		if errors.Is(err, client.ErrNotFound) {
 			resp.State.RemoveResource(ctx)
@@ -124,7 +124,7 @@ func (r *dashboardResource) Update(ctx context.Context, req resource.UpdateReque
 	ctx, cancel := context.WithTimeout(ctx, updateTimeout)
 	defer cancel()
 
-	_, err := r.client.UpdateDashboard(data.ID.ValueString(), &client.Dashboard{
+	_, err := r.client.WithContext(ctx).UpdateDashboard(data.ID.ValueString(), &client.Dashboard{
 		Title:       data.Title.ValueString(),
 		Description: data.Description.ValueString(),
 	})
@@ -163,7 +163,7 @@ func (r *dashboardResource) Delete(ctx context.Context, req resource.DeleteReque
 	ctx, cancel := context.WithTimeout(ctx, deleteTimeout)
 	defer cancel()
 
-	if err := r.client.DeleteDashboard(data.ID.ValueString()); err != nil {
+	if err := r.client.WithContext(ctx).DeleteDashboard(data.ID.ValueString()); err != nil {
 		resp.Diagnostics.AddError("Error deleting dashboard", err.Error())
 	}
 }

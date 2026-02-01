@@ -100,7 +100,7 @@ func (r *streamResource) Create(ctx context.Context, req resource.CreateRequest,
 	ctx, cancel := context.WithTimeout(ctx, createTimeout)
 	defer cancel()
 
-	created, err := r.client.CreateStream(&client.Stream{
+	created, err := r.client.WithContext(ctx).CreateStream(&client.Stream{
 		Title:       data.Title.ValueString(),
 		Description: data.Description.ValueString(),
 		Disabled:    data.Disabled.ValueBool(),
@@ -120,7 +120,7 @@ func (r *streamResource) Create(ctx context.Context, req resource.CreateRequest,
 			Inverted:    rr.Inverted.ValueBool(),
 			Description: rr.Description.ValueString(),
 		}
-		cr, err := r.client.CreateStreamRule(data.ID.ValueString(), rule)
+		cr, err := r.client.WithContext(ctx).CreateStreamRule(data.ID.ValueString(), rule)
 		if err != nil {
 			resp.Diagnostics.AddError("Error creating stream rule", err.Error())
 			return
@@ -140,7 +140,7 @@ func (r *streamResource) Create(ctx context.Context, req resource.CreateRequest,
 		}
 	}
 	if needMap {
-		if rules, err := r.client.ListStreamRules(data.ID.ValueString()); err == nil {
+		if rules, err := r.client.WithContext(ctx).ListStreamRules(data.ID.ValueString()); err == nil {
 			for i, rr := range data.Rules {
 				if !rr.ID.IsNull() && !rr.ID.IsUnknown() && rr.ID.ValueString() != "" {
 					continue
@@ -166,7 +166,7 @@ func (r *streamResource) Read(ctx context.Context, req resource.ReadRequest, res
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	s, err := r.client.GetStream(data.ID.ValueString())
+	s, err := r.client.WithContext(ctx).GetStream(data.ID.ValueString())
 	if err != nil {
 		if errors.Is(err, client.ErrNotFound) {
 			// Resource was deleted outside of Terraform
@@ -181,7 +181,7 @@ func (r *streamResource) Read(ctx context.Context, req resource.ReadRequest, res
 	data.Disabled = types.BoolValue(s.Disabled)
 	data.IndexSetID = types.StringValue(s.IndexSetID)
 	// Read stream rules via API
-	if rules, err := r.client.ListStreamRules(data.ID.ValueString()); err == nil {
+	if rules, err := r.client.WithContext(ctx).ListStreamRules(data.ID.ValueString()); err == nil {
 		out := make([]streamRuleModel, 0, len(rules))
 		for _, rrule := range rules {
 			out = append(out, streamRuleModel{
@@ -222,7 +222,7 @@ func (r *streamResource) Update(ctx context.Context, req resource.UpdateRequest,
 	ctx, cancel := context.WithTimeout(ctx, updateTimeout)
 	defer cancel()
 
-	_, err := r.client.UpdateStream(data.ID.ValueString(), &client.Stream{
+	_, err := r.client.WithContext(ctx).UpdateStream(data.ID.ValueString(), &client.Stream{
 		Title:       data.Title.ValueString(),
 		Description: data.Description.ValueString(),
 		Disabled:    data.Disabled.ValueBool(),
@@ -233,10 +233,10 @@ func (r *streamResource) Update(ctx context.Context, req resource.UpdateRequest,
 		return
 	}
 	// Resync rules: fetch existing, delete all, recreate from plan
-	if existing, err := r.client.ListStreamRules(data.ID.ValueString()); err == nil {
+	if existing, err := r.client.WithContext(ctx).ListStreamRules(data.ID.ValueString()); err == nil {
 		for _, ex := range existing {
 			if ex.ID != "" {
-				_ = r.client.DeleteStreamRule(data.ID.ValueString(), ex.ID)
+				_ = r.client.WithContext(ctx).DeleteStreamRule(data.ID.ValueString(), ex.ID)
 			}
 		}
 	}
@@ -248,7 +248,7 @@ func (r *streamResource) Update(ctx context.Context, req resource.UpdateRequest,
 			Inverted:    rr.Inverted.ValueBool(),
 			Description: rr.Description.ValueString(),
 		}
-		cr, err := r.client.CreateStreamRule(data.ID.ValueString(), rule)
+		cr, err := r.client.WithContext(ctx).CreateStreamRule(data.ID.ValueString(), rule)
 		if err != nil {
 			resp.Diagnostics.AddError("Error creating stream rule", err.Error())
 			return
@@ -298,7 +298,7 @@ func (r *streamResource) Delete(ctx context.Context, req resource.DeleteRequest,
 	ctx, cancel := context.WithTimeout(ctx, deleteTimeout)
 	defer cancel()
 
-	if err := r.client.DeleteStream(data.ID.ValueString()); err != nil {
+	if err := r.client.WithContext(ctx).DeleteStream(data.ID.ValueString()); err != nil {
 		resp.Diagnostics.AddError("Error deleting stream", err.Error())
 	}
 }

@@ -66,7 +66,7 @@ func (d *inputDataSource) Read(ctx context.Context, req datasource.ReadRequest, 
 		return
 	}
 
-	in, err := d.client.GetInput(data.ID.ValueString())
+	in, err := d.client.WithContext(ctx).GetInput(data.ID.ValueString())
 	if err != nil {
 		if errors.Is(err, client.ErrNotFound) {
 			resp.Diagnostics.AddError("Input not found", "The input with the specified ID was not found")

@@ -73,7 +73,7 @@ func (r *eventNotificationResource) Create(ctx context.Context, req resource.Cre
 	ctx, cancel := context.WithTimeout(ctx, createTimeout)
 	defer cancel()
 
-	created, err := r.client.CreateEventNotification(&client.EventNotification{
+	created, err := r.client.WithContext(ctx).CreateEventNotification(&client.EventNotification{
 		Title:       data.Title.ValueString(),
 		Type:        data.Type.ValueString(),
 		Description: data.Description.ValueString(),
@@ -93,7 +93,7 @@ func (r *eventNotificationResource) Read(ctx context.Context, req resource.ReadR
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	got, err := r.client.GetEventNotification(data.ID.ValueString())
+	got, err := r.client.WithContext(ctx).GetEventNotification(data.ID.ValueString())
 	if err != nil {
 		if errors.Is(err, client.ErrNotFound) {
 			resp.State.RemoveResource(ctx)
@@ -128,7 +128,7 @@ func (r *eventNotificationResource) Update(ctx context.Context, req resource.Upd
 	}
 	ctx, cancel := context.WithTimeout(ctx, updateTimeout)
 	defer cancel()
-	_, err := r.client.UpdateEventNotification(data.ID.ValueString(), &client.EventNotification{
+	_, err := r.client.WithContext(ctx).UpdateEventNotification(data.ID.ValueString(), &client.EventNotification{
 		Title:       data.Title.ValueString(),
 		Type:        data.Type.ValueString(),
 		Description: data.Description.ValueString(),
@@ -154,7 +154,7 @@ func (r *eventNotificationResource) Delete(ctx context.Context, req resource.Del
 	}
 	ctx, cancel := context.WithTimeout(ctx, deleteTimeout)
 	defer cancel()
-	if err := r.client.DeleteEventNotification(data.ID.ValueString()); err != nil {
+	if err := r.client.WithContext(ctx).DeleteEventNotification(data.ID.ValueString()); err != nil {
 		resp.Diagnostics.AddError("Error deleting event notification", err.Error())
 		return
 	}

@@ -1,12 +1,12 @@
 ---
-page_title: "graylog_alert Resource - Graylog"
+page_title: "graylog_alert Resource - Graylog Terraform Provider"
 description: |-
-  Manages a Graylog Event Definition (alerts) with flexible `config` map and optional `notification_ids`.
+  Terraform Graylog provider: manage Graylog alerts (Event Definitions) with flexible config and notifications (automation/IaC). Keywords: terraform graylog provider, graylog terraform, terraform graylog, graylog automation, Graylog operation automation.
 ---
 
 # graylog_alert (Resource)
 
-Manages a Graylog Event Definition (alert). The `config` attribute is a free-form map passed as-is to Graylog, supporting various event types (e.g., aggregation, threshold).
+Manages a Graylog Event Definition (alert). Part of the Graylog Terraform Provider for Graylog automation. The `config` attribute is a free-form map passed as-is to Graylog, supporting various event types (e.g., aggregation, threshold).
 
 ## Example Usage
 

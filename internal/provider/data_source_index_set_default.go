@@ -59,7 +59,7 @@ func (d *indexSetDefaultDataSource) Read(ctx context.Context, req datasource.Rea
 	var data indexSetDefaultDSModel
 	// no config to read; keep for uniformity
 
-	sets, err := d.client.ListIndexSets()
+	sets, err := d.client.WithContext(ctx).ListIndexSets()
 	if err != nil {
 		resp.Diagnostics.AddError("Error listing index sets", err.Error())
 		return

@@ -58,7 +58,7 @@ func (d *userDataSource) Read(ctx context.Context, req datasource.ReadRequest, r
 		return
 	}
 
-	u, err := d.client.GetUser(data.Username.ValueString())
+	u, err := d.client.WithContext(ctx).GetUser(data.Username.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddAttributeError(path.Root("username"), "User not found", err.Error())
 		return

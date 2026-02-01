@@ -128,7 +128,7 @@ func (r *inputResource) Create(ctx context.Context, req resource.CreateRequest, 
 		Node:          data.Node.ValueString(),
 		Configuration: config,
 	}
-	created, err := r.client.CreateInput(in)
+	created, err := r.client.WithContext(ctx).CreateInput(in)
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating input", err.Error())
 		return
@@ -147,7 +147,7 @@ func (r *inputResource) Create(ctx context.Context, req resource.CreateRequest, 
 			if !ok || payload == nil {
 				payload = ex
 			}
-			if _, err := r.client.CreateInputExtractor(created.ID, payload); err != nil {
+			if _, err := r.client.WithContext(ctx).CreateInputExtractor(created.ID, payload); err != nil {
 				resp.Diagnostics.AddError("Error creating input extractor", err.Error())
 				return
 			}
@@ -162,7 +162,7 @@ func (r *inputResource) Read(ctx context.Context, req resource.ReadRequest, resp
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	in, err := r.client.GetInput(data.ID.ValueString())
+	in, err := r.client.WithContext(ctx).GetInput(data.ID.ValueString())
 	if err != nil {
 		if errors.Is(err, client.ErrNotFound) {
 			// Resource was deleted outside of Terraform
@@ -185,7 +185,7 @@ func (r *inputResource) Read(ctx context.Context, req resource.ReadRequest, resp
 	}
 
 	// Read extractors
-	if exList, err := r.client.ListInputExtractors(data.ID.ValueString()); err == nil {
+	if exList, err := r.client.WithContext(ctx).ListInputExtractors(data.ID.ValueString()); err == nil {
 		if len(exList) == 0 {
 			data.Extractors = types.StringNull()
 		} else if b, err2 := json.Marshal(exList); err2 == nil {
@@ -236,17 +236,17 @@ func (r *inputResource) Update(ctx context.Context, req resource.UpdateRequest, 
 		Node:          data.Node.ValueString(),
 		Configuration: config,
 	}
-	_, err := r.client.UpdateInput(data.ID.ValueString(), in)
+	_, err := r.client.WithContext(ctx).UpdateInput(data.ID.ValueString(), in)
 	if err != nil {
 		resp.Diagnostics.AddError("Error updating input", err.Error())
 		return
 	}
 	// Reconcile extractors: delete all existing and recreate from desired list
 	// (simple strategy to keep provider logic maintainable)
-	if exExisting, err := r.client.ListInputExtractors(data.ID.ValueString()); err == nil {
+	if exExisting, err := r.client.WithContext(ctx).ListInputExtractors(data.ID.ValueString()); err == nil {
 		for _, ex := range exExisting {
 			if id, ok := ex["id"].(string); ok && id != "" {
-				if derr := r.client.DeleteInputExtractor(data.ID.ValueString(), id); derr != nil {
+				if derr := r.client.WithContext(ctx).DeleteInputExtractor(data.ID.ValueString(), id); derr != nil {
 					resp.Diagnostics.AddWarning("Failed to delete existing extractor", derr.Error())
 				}
 			}
@@ -263,7 +263,7 @@ func (r *inputResource) Update(ctx context.Context, req resource.UpdateRequest, 
 			if !ok || payload == nil {
 				payload = ex
 			}
-			if _, cerr := r.client.CreateInputExtractor(data.ID.ValueString(), payload); cerr != nil {
+			if _, cerr := r.client.WithContext(ctx).CreateInputExtractor(data.ID.ValueString(), payload); cerr != nil {
 				resp.Diagnostics.AddError("Error creating input extractor", cerr.Error())
 				return
 			}
@@ -288,7 +288,7 @@ func (r *inputResource) Delete(ctx context.Context, req resource.DeleteRequest, 
 	ctx, cancel := context.WithTimeout(ctx, deleteTimeout)
 	defer cancel()
 
-	if err := r.client.DeleteInput(data.ID.ValueString()); err != nil {
+	if err := r.client.WithContext(ctx).DeleteInput(data.ID.ValueString()); err != nil {
 		resp.Diagnostics.AddError("Error deleting input", err.Error())
 	}
 }

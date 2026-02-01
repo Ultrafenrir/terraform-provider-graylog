@@ -73,7 +73,7 @@ func (r *dashboardWidgetResource) Create(ctx context.Context, req resource.Creat
 	}
 	ctx, cancel := context.WithTimeout(ctx, createTimeout)
 	defer cancel()
-	created, err := r.client.CreateDashboardWidget(data.DashboardID.ValueString(), &client.DashboardWidget{
+	created, err := r.client.WithContext(ctx).CreateDashboardWidget(data.DashboardID.ValueString(), &client.DashboardWidget{
 		Type:          data.Type.ValueString(),
 		Description:   data.Description.ValueString(),
 		CacheTime:     int(data.CacheTime.ValueInt64()),
@@ -93,7 +93,7 @@ func (r *dashboardWidgetResource) Read(ctx context.Context, req resource.ReadReq
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	got, err := r.client.GetDashboardWidget(data.DashboardID.ValueString(), data.ID.ValueString())
+	got, err := r.client.WithContext(ctx).GetDashboardWidget(data.DashboardID.ValueString(), data.ID.ValueString())
 	if err != nil {
 		if errors.Is(err, client.ErrNotFound) {
 			resp.State.RemoveResource(ctx)
@@ -132,7 +132,7 @@ func (r *dashboardWidgetResource) Update(ctx context.Context, req resource.Updat
 	}
 	ctx, cancel := context.WithTimeout(ctx, updateTimeout)
 	defer cancel()
-	_, err := r.client.UpdateDashboardWidget(data.DashboardID.ValueString(), data.ID.ValueString(), &client.DashboardWidget{
+	_, err := r.client.WithContext(ctx).UpdateDashboardWidget(data.DashboardID.ValueString(), data.ID.ValueString(), &client.DashboardWidget{
 		Type:          data.Type.ValueString(),
 		Description:   data.Description.ValueString(),
 		CacheTime:     int(data.CacheTime.ValueInt64()),
@@ -158,7 +158,7 @@ func (r *dashboardWidgetResource) Delete(ctx context.Context, req resource.Delet
 	}
 	ctx, cancel := context.WithTimeout(ctx, deleteTimeout)
 	defer cancel()
-	if err := r.client.DeleteDashboardWidget(data.DashboardID.ValueString(), data.ID.ValueString()); err != nil {
+	if err := r.client.WithContext(ctx).DeleteDashboardWidget(data.DashboardID.ValueString(), data.ID.ValueString()); err != nil {
 		resp.Diagnostics.AddError("Error deleting dashboard widget", err.Error())
 		return
 	}

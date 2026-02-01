@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased (v0.2.0)
+- Context propagation: client supports `WithContext(ctx)`; all provider resources and data sources pass Terraform operation context to API calls.
+- Structured logging: client exposes `Logger` interface (default no-op) and logs requests, responses, retries, and errors with structured fields.
+- Migration tests: Makefile target `make test-migration` runs Terraform state migration scenario across Graylog 5→6→7 using a shared local backend; covers all supported resources stepwise.
+
+## v0.1.1
+- Client: robust JSON error handling added. Graylog API error payloads are parsed into a structured `GraylogError` with status, message, validation details, and raw body. Retry logic remains intact.
+
 ## v0.1.0
 Initial release of the Graylog Terraform Provider with the following capabilities:
 

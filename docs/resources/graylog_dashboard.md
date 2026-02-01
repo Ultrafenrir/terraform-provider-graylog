@@ -1,12 +1,12 @@
 ---
-page_title: "graylog_dashboard Resource - Graylog"
+page_title: "graylog_dashboard Resource - Graylog Terraform Provider"
 description: |-
-  Manages a classic Graylog dashboard (title and description).
+  Terraform Graylog provider: manage classic Graylog dashboards (automation/IaC). Keywords: terraform graylog provider, graylog terraform, terraform graylog, graylog automation, Graylog operation automation.
 ---
 
 # graylog_dashboard (Resource)
 
-Manages a classic Graylog dashboard with basic fields.
+Manages a classic Graylog dashboard with basic fields. Part of the Graylog Terraform Provider for Graylog automation.
 
 ## Example Usage
 

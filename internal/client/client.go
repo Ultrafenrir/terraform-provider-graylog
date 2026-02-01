@@ -2,6 +2,7 @@ package client
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -31,6 +32,9 @@ type Client struct {
 	APIVersion APIVersion
 	MaxRetries int
 	RetryWait  time.Duration
+	// ctx — контекст по умолчанию для всех запросов (может быть переопределён через WithContext)
+	ctx    context.Context
+	logger Logger
 }
 
 func New(baseURL, token string) *Client {
@@ -40,6 +44,8 @@ func New(baseURL, token string) *Client {
 		HTTP:       &http.Client{Timeout: 30 * time.Second},
 		MaxRetries: 3,
 		RetryWait:  time.Second,
+		ctx:        context.Background(),
+		logger:     NoopLogger{},
 	}
 	// Нормализуем базовый URL: храним без суффикса /api, префикс /api добавляем в путях по версии API
 	if strings.HasSuffix(c.BaseURL, "/api") {
@@ -111,6 +117,28 @@ func (c *Client) shouldRetry(statusCode int) bool {
 	return statusCode == 429 || statusCode == 500 || statusCode == 502 || statusCode == 503 || statusCode == 504
 }
 
+// WithContext возвращает копию клиента, которая будет использовать переданный контекст
+// для всех дальнейших запросов. Это позволяет прокидывать контекст из внешнего кода,
+// не меняя сигнатуры всех методов клиента.
+func (c *Client) WithContext(ctx context.Context) *Client {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	clone := *c
+	clone.ctx = ctx
+	return &clone
+}
+
+// SetLogger задаёт реализацию структурированного логирования для клиента.
+// По умолчанию используется NoopLogger.
+func (c *Client) SetLogger(l Logger) {
+	if l == nil {
+		c.logger = NoopLogger{}
+		return
+	}
+	c.logger = l
+}
+
 func (c *Client) doRequest(method, path string, body any) ([]byte, error) {
 	var bodyBytes []byte
 	if body != nil {
@@ -125,7 +153,12 @@ func (c *Client) doRequest(method, path string, body any) ([]byte, error) {
 			buf = bytes.NewBuffer(bodyBytes)
 		}
 
-		req, err := http.NewRequest(method, fmt.Sprintf("%s%s", c.BaseURL, path), buf)
+		// Используем контекст из клиента (может быть установлен через WithContext)
+		ctx := c.ctx
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		req, err := http.NewRequestWithContext(ctx, method, fmt.Sprintf("%s%s", c.BaseURL, path), buf)
 		if err != nil {
 			return nil, err
 		}
@@ -134,9 +167,18 @@ func (c *Client) doRequest(method, path string, body any) ([]byte, error) {
 		req.Header.Set("X-Requested-By", "terraform-provider")
 		req.Header.Set("Authorization", "Basic "+c.Token)
 
+		start := time.Now()
 		if os.Getenv("DEBUG_HTTP") == "1" && bodyBytes != nil {
 			fmt.Fprintf(os.Stderr, "REQ %s %s: %s\n", method, path, string(bodyBytes))
 		}
+		c.logger.Debug(ctx, "http_request",
+			Fields{
+				"method":   method,
+				"path":     path,
+				"attempt":  attempt + 1,
+				"maxRetry": c.MaxRetries + 1,
+			},
+		)
 
 		resp, err := c.HTTP.Do(req)
 		if err != nil {
@@ -144,6 +186,14 @@ func (c *Client) doRequest(method, path string, body any) ([]byte, error) {
 			lastErr = err
 			if attempt < c.MaxRetries {
 				waitTime := time.Duration(math.Pow(2, float64(attempt))) * c.RetryWait
+				c.logger.Warn(ctx, "http_request_error",
+					Fields{
+						"method":  method,
+						"path":    path,
+						"attempt": attempt + 1,
+						"error":   err.Error(),
+					},
+				)
 				time.Sleep(waitTime)
 				continue
 			}
@@ -153,6 +203,14 @@ func (c *Client) doRequest(method, path string, body any) ([]byte, error) {
 
 		// 404 - resource not found, don't retry
 		if resp.StatusCode == 404 {
+			c.logger.Info(ctx, "http_response",
+				Fields{
+					"method":   method,
+					"path":     path,
+					"status":   resp.StatusCode,
+					"duration": time.Since(start).String(),
+				},
+			)
 			return nil, ErrNotFound
 		}
 
@@ -164,21 +222,180 @@ func (c *Client) doRequest(method, path string, body any) ([]byte, error) {
 
 		// Check if we should retry
 		if resp.StatusCode >= 400 {
+			// Пытаемся распарсить структурированную ошибку Graylog
+			gerr := ParseGraylogError(resp.StatusCode, b)
+
 			if c.shouldRetry(resp.StatusCode) && attempt < c.MaxRetries {
-				lastErr = fmt.Errorf("Graylog API error (status %d): %s", resp.StatusCode, string(b))
+				lastErr = gerr
 				waitTime := time.Duration(math.Pow(2, float64(attempt))) * c.RetryWait
+				c.logger.Warn(ctx, "http_response_retry",
+					Fields{
+						"method":   method,
+						"path":     path,
+						"status":   resp.StatusCode,
+						"duration": time.Since(start).String(),
+						"attempt":  attempt + 1,
+						"error":    gerr.Error(),
+					},
+				)
 				time.Sleep(waitTime)
 				continue
 			}
-			return nil, fmt.Errorf("Graylog API error (status %d): %s", resp.StatusCode, string(b))
+			c.logger.Error(ctx, "http_response_error",
+				Fields{
+					"method":   method,
+					"path":     path,
+					"status":   resp.StatusCode,
+					"duration": time.Since(start).String(),
+					"error":    gerr.Error(),
+				},
+			)
+			return nil, gerr
 		}
 
 		// Success
+		c.logger.Debug(ctx, "http_response",
+			Fields{
+				"method":   method,
+				"path":     path,
+				"status":   resp.StatusCode,
+				"duration": time.Since(start).String(),
+			},
+		)
 		return b, nil
 	}
 
 	return nil, fmt.Errorf("request failed after %d attempts: %w", c.MaxRetries+1, lastErr)
 }
+
+// GraylogError описывает структурированную ошибку, возвращаемую Graylog API.
+type GraylogError struct {
+	Status  int                 `json:"-"`
+	Type    string              `json:"type,omitempty"`
+	Message string              `json:"message,omitempty"`
+	Err     string              `json:"error,omitempty"`
+	Errors  map[string][]string `json:"errors,omitempty"`
+	Details map[string]any      `json:"details,omitempty"`
+	Raw     string              `json:"-"`
+}
+
+func (e *GraylogError) Error() string {
+	// Составляем читаемое сообщение с приоритетом полей
+	msg := e.Message
+	if msg == "" {
+		msg = e.Err
+	}
+	if msg == "" {
+		msg = http.StatusText(e.Status)
+	}
+	if len(e.Errors) > 0 {
+		// Добавим краткое представление валидационных ошибок
+		var b strings.Builder
+		b.WriteString(msg)
+		b.WriteString(" (validation: ")
+		first := true
+		for k, arr := range e.Errors {
+			if !first {
+				b.WriteString(", ")
+			}
+			first = false
+			b.WriteString(k)
+			if len(arr) > 0 {
+				b.WriteString("=")
+				b.WriteString(arr[0])
+			}
+		}
+		b.WriteString(")")
+		msg = b.String()
+	}
+	return fmt.Sprintf("Graylog API error (status %d): %s", e.Status, msg)
+}
+
+// ParseGraylogError пытается разобрать типичные ответы ошибок Graylog во всех поддерживаемых версиях.
+func ParseGraylogError(status int, body []byte) error {
+	ge := &GraylogError{Status: status, Raw: string(body)}
+
+	// Попытка распарсить JSON
+	var m map[string]any
+	if err := json.Unmarshal(body, &m); err != nil {
+		// Если это не JSON — вернём обёртку с сырым текстом
+		if len(body) > 0 {
+			ge.Message = string(body)
+		}
+		return ge
+	}
+
+	// Общие поля
+	if v, ok := m["type"].(string); ok {
+		ge.Type = v
+	}
+	if v, ok := m["message"].(string); ok {
+		ge.Message = v
+	}
+	if v, ok := m["error"].(string); ok {
+		ge.Err = v
+	}
+
+	// Валидационные ошибки могут приходить в разных формах
+	ge.Errors = map[string][]string{}
+	if v, ok := m["errors"]; ok {
+		switch t := v.(type) {
+		case map[string]any:
+			for field, raw := range t {
+				switch rr := raw.(type) {
+				case []any:
+					for _, it := range rr {
+						if s, ok := it.(string); ok {
+							ge.Errors[field] = append(ge.Errors[field], s)
+						}
+					}
+				case string:
+					ge.Errors[field] = append(ge.Errors[field], rr)
+				}
+			}
+		case []any:
+			// иногда приходит массив строк
+			var items []string
+			for _, it := range t {
+				if s, ok := it.(string); ok {
+					items = append(items, s)
+				}
+			}
+			if len(items) > 0 {
+				ge.Errors["_"] = items
+			}
+		}
+	}
+
+	// Сохраним все остальные детали
+	ge.Details = map[string]any{}
+	for k, v := range m {
+		if k == "type" || k == "message" || k == "error" || k == "errors" {
+			continue
+		}
+		ge.Details[k] = v
+	}
+
+	return ge
+}
+
+// Простое структурированное логирование
+type Fields map[string]any
+
+type Logger interface {
+	Debug(ctx context.Context, msg string, fields Fields)
+	Info(ctx context.Context, msg string, fields Fields)
+	Warn(ctx context.Context, msg string, fields Fields)
+	Error(ctx context.Context, msg string, fields Fields)
+}
+
+// NoopLogger — реализация по умолчанию, ничего не делает
+type NoopLogger struct{}
+
+func (NoopLogger) Debug(context.Context, string, Fields) {}
+func (NoopLogger) Info(context.Context, string, Fields)  {}
+func (NoopLogger) Warn(context.Context, string, Fields)  {}
+func (NoopLogger) Error(context.Context, string, Fields) {}
 
 // Legacy lightweight rule used in initial implementation for embedding into Stream payload.
 // Graylog actually manages stream rules via dedicated endpoints; use StreamRule below for full support.

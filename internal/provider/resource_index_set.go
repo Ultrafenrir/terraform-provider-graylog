@@ -223,7 +223,7 @@ func (r *indexSetResource) Create(ctx context.Context, req resource.CreateReques
 	ctx, cancel := context.WithTimeout(ctx, createTimeout)
 	defer cancel()
 
-	created, err := r.client.CreateIndexSet(&client.IndexSet{
+	created, err := r.client.WithContext(ctx).CreateIndexSet(&client.IndexSet{
 		Title:                           data.Title.ValueString(),
 		Description:                     data.Description.ValueString(),
 		IndexPrefix:                     data.IndexPrefix.ValueString(),
@@ -262,7 +262,7 @@ func (r *indexSetResource) Read(ctx context.Context, req resource.ReadRequest, r
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	is, err := r.client.GetIndexSet(data.ID.ValueString())
+	is, err := r.client.WithContext(ctx).GetIndexSet(data.ID.ValueString())
 	if err != nil {
 		if errors.Is(err, client.ErrNotFound) {
 			// Resource was deleted outside of Terraform
@@ -325,7 +325,7 @@ func (r *indexSetResource) Update(ctx context.Context, req resource.UpdateReques
 	ctx, cancel := context.WithTimeout(ctx, updateTimeout)
 	defer cancel()
 
-	_, err := r.client.UpdateIndexSet(data.ID.ValueString(), &client.IndexSet{
+	_, err := r.client.WithContext(ctx).UpdateIndexSet(data.ID.ValueString(), &client.IndexSet{
 		Title:                           data.Title.ValueString(),
 		Description:                     data.Description.ValueString(),
 		IndexPrefix:                     data.IndexPrefix.ValueString(),
@@ -365,7 +365,7 @@ func (r *indexSetResource) Delete(ctx context.Context, req resource.DeleteReques
 	ctx, cancel := context.WithTimeout(ctx, deleteTimeout)
 	defer cancel()
 
-	if err := r.client.DeleteIndexSet(data.ID.ValueString()); err != nil {
+	if err := r.client.WithContext(ctx).DeleteIndexSet(data.ID.ValueString()); err != nil {
 		resp.Diagnostics.AddError("Error deleting index set", err.Error())
 	}
 }

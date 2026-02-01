@@ -82,7 +82,7 @@ func (r *userResource) Create(ctx context.Context, req resource.CreateRequest, r
 	}
 	ctx, cancel := context.WithTimeout(ctx, createTimeout)
 	defer cancel()
-	created, err := r.client.CreateUser(&client.User{
+	created, err := r.client.WithContext(ctx).CreateUser(&client.User{
 		Username:         data.Username.ValueString(),
 		FullName:         data.FullName.ValueString(),
 		Email:            data.Email.ValueString(),
@@ -106,7 +106,7 @@ func (r *userResource) Read(ctx context.Context, req resource.ReadRequest, resp 
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	u, err := r.client.GetUser(data.Username.ValueString())
+	u, err := r.client.WithContext(ctx).GetUser(data.Username.ValueString())
 	if err != nil {
 		if errors.Is(err, client.ErrNotFound) {
 			resp.State.RemoveResource(ctx)
@@ -157,7 +157,7 @@ func (r *userResource) Update(ctx context.Context, req resource.UpdateRequest, r
 	}
 	ctx, cancel := context.WithTimeout(ctx, updateTimeout)
 	defer cancel()
-	_, err := r.client.UpdateUser(data.Username.ValueString(), &client.User{
+	_, err := r.client.WithContext(ctx).UpdateUser(data.Username.ValueString(), &client.User{
 		Username:         data.Username.ValueString(),
 		FullName:         data.FullName.ValueString(),
 		Email:            data.Email.ValueString(),
@@ -187,7 +187,7 @@ func (r *userResource) Delete(ctx context.Context, req resource.DeleteRequest, r
 	}
 	ctx, cancel := context.WithTimeout(ctx, deleteTimeout)
 	defer cancel()
-	if err := r.client.DeleteUser(data.Username.ValueString()); err != nil {
+	if err := r.client.WithContext(ctx).DeleteUser(data.Username.ValueString()); err != nil {
 		resp.Diagnostics.AddError("Error deleting user", err.Error())
 		return
 	}

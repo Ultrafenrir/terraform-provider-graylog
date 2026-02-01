@@ -1,13 +1,13 @@
 ---
-page_title: "graylog_user Resource"
+page_title: "graylog_user Resource - Graylog Terraform Provider"
 subcategory: "Security"
 description: |-
-  Manages a Graylog local user including roles and password.
+  Terraform Graylog provider: manage Graylog local users (roles/password). Keywords: terraform graylog provider, graylog terraform, terraform graylog, graylog automation, Graylog operation automation.
 ---
 
 # graylog_user (Resource)
 
-Manages a Graylog local user. Supports Graylog v5, v6, and v7.
+Manages a Graylog local user. Part of the Graylog Terraform Provider for Graylog automation. Supports Graylog v5, v6, and v7.
 
 ## Example Usage
 
