@@ -103,6 +103,26 @@ Integration tests run against a real Graylog via docker‑compose:
 
 Note: Integration tests are marked with `//go:build integration` and are not executed by a regular `make test`.
 
+## Migration tests (Terraform state 5→6→7)
+
+To validate state migration across Graylog major versions (5 → 6 → 7) using a single Terraform state:
+
+1. Prereqs: Docker/Compose; Terraform CLI; ports 9000/9200 available.
+2. Run:
+   ```bash
+   make test-migration
+   ```
+   The target will:
+   - Build the provider locally and configure Terraform dev overrides.
+   - Start Graylog 5.x via docker-compose, apply `test/migration/step1` and ensure no drift.
+   - In-place upgrade to 6.x (preserving volumes), apply `step2`, ensure no drift.
+   - Upgrade to 7.x, apply `step3`, ensure no drift; optionally destroy at the end.
+
+Notes:
+- The migration covers all supported resources across the steps: inputs, streams (+rules), index sets, pipelines, dashboards, dashboard widgets, alerts (Event Definitions), event notifications, outputs, LDAP settings, roles, and users.
+- Shared local backend is used: state file at `test/migration/shared/terraform.tfstate`.
+- You can preserve resources after a successful run for debugging by setting `SKIP_DESTROY=1`.
+
 ## Releases and publishing
 
 - GitHub Actions build and publish artifacts on tags matching `v*`.

@@ -50,7 +50,7 @@ func (d *dashboardDataSource) Read(ctx context.Context, req datasource.ReadReque
 	}
 
 	if !data.ID.IsNull() && data.ID.ValueString() != "" {
-		got, err := d.client.GetDashboard(data.ID.ValueString())
+		got, err := d.client.WithContext(ctx).GetDashboard(data.ID.ValueString())
 		if err != nil {
 			resp.Diagnostics.AddAttributeError(path.Root("id"), "Dashboard not found", err.Error())
 			return
@@ -61,7 +61,7 @@ func (d *dashboardDataSource) Read(ctx context.Context, req datasource.ReadReque
 		return
 	}
 	if !data.Title.IsNull() && data.Title.ValueString() != "" {
-		list, err := d.client.ListDashboards()
+		list, err := d.client.WithContext(ctx).ListDashboards()
 		if err != nil {
 			resp.Diagnostics.AddError("Lookup failed", err.Error())
 			return

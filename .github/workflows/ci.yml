@@ -1,13 +1,75 @@
-name: ci (deprecated)
+name: CI
 
-# ДЕАКТИВИРОВАНО: оставлено для истории. Не запускается автоматически.
 on:
-  workflow_call:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ "**" ]
 
 jobs:
-  noop:
-    name: Deprecated workflow (no-op)
+  unit:
     runs-on: ubuntu-latest
     steps:
-      - name: No-op
-        run: echo "This workflow is deprecated and intentionally does nothing."
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Go build and unit tests
+        run: |
+          go version
+          make test-unit
+
+  integration-all:
+    runs-on: ubuntu-latest
+    needs: unit
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Integration tests 5.x/6.x/7.x
+        env:
+          TIMEOUT: 40m
+        run: |
+          docker version
+          docker compose version
+          make test-integration-all TIMEOUT=$TIMEOUT
+
+  acc-all:
+    runs-on: ubuntu-latest
+    needs: unit
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Acceptance tests 5.x/6.x/7.x
+        env:
+          TIMEOUT: 40m
+        run: |
+          docker version
+          docker compose version
+          make test-acc-all TIMEOUT=$TIMEOUT
+
+  migration:
+    runs-on: ubuntu-latest
+    needs: [unit]
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.7.5
+      - name: Run state migration test (5→6→7)
+        env:
+          TIMEOUT: 60m
+        run: |
+          terraform version
+          docker version
+          docker compose version
+          make test-migration

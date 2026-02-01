@@ -72,7 +72,7 @@ func (r *pipelineResource) Create(ctx context.Context, req resource.CreateReques
 	ctx, cancel := context.WithTimeout(ctx, createTimeout)
 	defer cancel()
 
-	created, err := r.client.CreatePipeline(&client.Pipeline{
+	created, err := r.client.WithContext(ctx).CreatePipeline(&client.Pipeline{
 		Title:       data.Title.ValueString(),
 		Description: data.Description.ValueString(),
 		Source:      data.Source.ValueString(),
@@ -92,7 +92,7 @@ func (r *pipelineResource) Read(ctx context.Context, req resource.ReadRequest, r
 		return
 	}
 
-	p, err := r.client.GetPipeline(data.ID.ValueString())
+	p, err := r.client.WithContext(ctx).GetPipeline(data.ID.ValueString())
 	if err != nil {
 		if errors.Is(err, client.ErrNotFound) {
 			resp.State.RemoveResource(ctx)
@@ -128,7 +128,7 @@ func (r *pipelineResource) Update(ctx context.Context, req resource.UpdateReques
 	ctx, cancel := context.WithTimeout(ctx, updateTimeout)
 	defer cancel()
 
-	_, err := r.client.UpdatePipeline(data.ID.ValueString(), &client.Pipeline{
+	_, err := r.client.WithContext(ctx).UpdatePipeline(data.ID.ValueString(), &client.Pipeline{
 		Title:       data.Title.ValueString(),
 		Description: data.Description.ValueString(),
 		Source:      data.Source.ValueString(),
@@ -166,7 +166,7 @@ func (r *pipelineResource) Delete(ctx context.Context, req resource.DeleteReques
 	ctx, cancel := context.WithTimeout(ctx, deleteTimeout)
 	defer cancel()
 
-	if err := r.client.DeletePipeline(data.ID.ValueString()); err != nil {
+	if err := r.client.WithContext(ctx).DeletePipeline(data.ID.ValueString()); err != nil {
 		resp.Diagnostics.AddError("Error deleting pipeline", err.Error())
 	}
 }

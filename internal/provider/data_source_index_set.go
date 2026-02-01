@@ -63,7 +63,7 @@ func (d *indexSetDataSource) Read(ctx context.Context, req datasource.ReadReques
 		return
 	}
 
-	is, err := d.client.GetIndexSet(data.ID.ValueString())
+	is, err := d.client.WithContext(ctx).GetIndexSet(data.ID.ValueString())
 	if err != nil {
 		if errors.Is(err, client.ErrNotFound) {
 			resp.Diagnostics.AddError("Index set not found", "The index set with the specified ID was not found")

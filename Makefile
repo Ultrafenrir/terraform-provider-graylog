@@ -19,8 +19,8 @@ OS ?= $(shell uname -s | tr '[:upper:]' '[:lower:]')
 ARCH ?= $(shell uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/')
 
 .PHONY: default deps deps-fresh fmt lint test test-unit test-acc build build-quick build-all clean release help \
-	graylog-up graylog-down graylog-logs graylog-wait test-integration test-integration-one test-integration-all \
-	test-acc-integration test-acc-one test-acc-all
+    graylog-up graylog-up-graylog graylog-down graylog-stop graylog-logs graylog-wait graylog-ps test-integration test-integration-one test-integration-all \
+    test-acc-integration test-acc-one test-acc-all prepare-dev-provider test-migration graylog-upgrade-seq
 
 default: build-quick
 
@@ -39,6 +39,9 @@ help:
 	@echo "  make build-all    - Build for all platforms"
 	@echo "  make clean        - Clean build artifacts"
 	@echo "  make release      - Create release archive"
+	@echo "  make graylog-stop - Stop Graylog without removing volumes (for in-place upgrades)"
+	@echo "  make test-migration - Run Terraform state migration test 5→6→7 with shared state"
+	@echo "  make prepare-dev-provider - Build local provider and setup Terraform dev overrides"
 
 deps:
 	@echo "Installing dependencies..."
@@ -129,36 +132,57 @@ test: lint
 graylog-up:
 	@echo "Starting Graylog stack via docker-compose..."
 	@bash -c 'set -e; \
-	  ver="$(GRAYLOG_VERSION)"; \
-	  case "$$ver" in \
-	    7.*) mongo=7.0 ;; \
-	    6.*) mongo=6.0 ;; \
-	    5.*) mongo=5.0 ;; \
-	    *)   mongo=6.0 ;; \
-	  esac; \
-	  echo "Using MongoDB $$mongo for Graylog $$ver"; \
-	  MONGO_TAG="$$mongo" GRAYLOG_VERSION="$$ver" docker compose up -d --remove-orphans'
+	  mongo="$${MONGO_TAG:-7.0}"; \
+	  os="$${OPENSEARCH_TAG:-2.17.1}"; \
+	  echo Using MongoDB $$mongo and OpenSearch $$os for Graylog $(GRAYLOG_VERSION); \
+	  MONGO_TAG="$$mongo" OPENSEARCH_TAG="$$os" GRAYLOG_VERSION="$(GRAYLOG_VERSION)" docker compose up -d --remove-orphans'
+
+# Recreate ONLY the Graylog service (keep Mongo/OpenSearch running)
+graylog-up-graylog:
+	@echo "Recreating only Graylog service (keeping Mongo/OpenSearch)..."
+	@bash -c 'set -e; \
+	  mongo="$${MONGO_TAG:-7.0}"; \
+	  os="$${OPENSEARCH_TAG:-2.17.1}"; \
+	  echo Using MongoDB $$mongo and OpenSearch $$os; \
+	  MONGO_TAG="$$mongo" OPENSEARCH_TAG="$$os" GRAYLOG_VERSION="$(GRAYLOG_VERSION)" docker compose up -d --no-deps --force-recreate graylog'
 
 graylog-down:
 	@echo "Stopping and removing Graylog stack..."
 	docker compose down -v
 
+graylog-stop:
+	@echo "Stopping Graylog stack (preserving volumes)..."
+	docker compose stop
+
 graylog-logs:
 	@echo "Graylog logs:"
 	docker compose logs -f graylog
 
+# Show docker compose services status
+graylog-ps:
+	@echo "Docker compose services status:"
+	docker compose ps
+
 # Wait until API is available (200 or 401 on /api/system)
 graylog-wait:
-	@echo "Waiting for Graylog API readiness..."
-	@bash -c 'set -e; \
-	  for i in $$(seq 1 60); do \
+	@echo "Waiting for Graylog readiness (max ~30s)..."
+	@bash -lc 'set -e; \
+	  cid=$$(docker compose ps -q graylog || true); \
+	  for i in $$(seq 1 15); do \
 	    code=$$(curl -sk -o /dev/null -w "%{http_code}" http://127.0.0.1:9000/api/system || true); \
-	    if [ "$$code" = "200" ] || [ "$$code" = "401" ]; then \
-	      echo "Graylog is ready (HTTP $$code)"; exit 0; \
+	    health="unknown"; \
+	    if [ -n "$$cid" ]; then \
+	      health=$$(docker inspect -f "{{.State.Health.Status}}" $$cid 2>/dev/null || echo unknown); \
 	    fi; \
-	    echo "Waiting for Graylog... attempt $$i (code $$code)"; sleep 5; \
+	    if [ "$$code" = "200" ] || [ "$$code" = "401" ]; then \
+	      echo "Graylog is ready (HTTP $$code, health=$$health)"; exit 0; \
+	    fi; \
+	    echo "Waiting... attempt $$i (HTTP=$$code, health=$$health)"; sleep 2; \
 	  done; \
-	  echo "Graylog did not become ready"; exit 1'
+	  echo "Graylog did not become ready in ~30s. Dumping docker status/logs..."; \
+	  docker compose ps || true; \
+	  docker compose logs --tail=200 graylog || true; \
+	  exit 1'
 
 # Integration tests with a real Graylog
 test-integration: graylog-up graylog-wait
@@ -215,6 +239,84 @@ build-all: deps lint test-unit
 clean:
 	@echo "Cleaning..."
 	rm -rf build dist
+
+# ---------- Dev provider for Terraform CLI (dev_overrides) ----------
+prepare-dev-provider:
+	@echo "Building provider for dev overrides..."
+	@bash -lc '\
+	  set -euo pipefail; \
+	  OUT_DIR="$$(pwd)/build/dev_overrides"; \
+	  mkdir -p "$$OUT_DIR"; \
+	  GOOS=$$(go env GOOS) GOARCH=$$(go env GOARCH) go build -o "$$OUT_DIR/terraform-provider-graylog_v0.0.0" ./; \
+	  CONF_DIR="$$(pwd)/build"; \
+	  CONF_FILE="$$CONF_DIR/terraformrc"; \
+	  mkdir -p "$$CONF_DIR"; \
+	  printf "provider_installation {\n  dev_overrides {\n    \"Ultrafenrir/graylog\" = \"%s\"\n  }\n  direct {}\n}\n" "$$OUT_DIR" > "$$CONF_FILE"; \
+	  echo "Dev provider prepared at $$OUT_DIR; TF_CLI_CONFIG_FILE=$$CONF_FILE"; \
+	'
+
+# ---------- Migration test (Terraform CLI; shared local backend) ----------
+test-migration:
+	@echo "Preparing dev provider and Terraform CLI configuration..."
+	@$(MAKE) graylog-down >/dev/null || true
+	@$(MAKE) deps-fresh >/dev/null
+	@$(MAKE) prepare-dev-provider >/dev/null
+	@rm -f test/migration/shared/terraform.tfstate test/migration/shared/terraform.tfstate.backup || true
+	@bash -lc 'set -euo pipefail; \
+	  GL_BASIC=$$(printf "admin:admin" | base64); \
+	  TF_VAR_url="$${URL:-http://127.0.0.1:9000/api}"; \
+	  TF_VAR_token="$${TOKEN:-$$GL_BASIC}"; \
+	  SUFFIX="$${SUFFIX:-$$(date +%s)}"; \
+	  TF_VAR_prefix="tfm_$$SUFFIX"; \
+	  TF_CLI_CONFIG_FILE="$(CURDIR)/build/terraformrc"; \
+	  export TF_VAR_url TF_VAR_token TF_VAR_prefix TF_CLI_CONFIG_FILE; \
+	  mkdir -p test/migration/shared; \
+	  echo "==== Step 1: Graylog 5.x ===="; \
+	  $(MAKE) GRAYLOG_VERSION=5.0 graylog-up; \
+	  $(MAKE) graylog-wait; \
+	  terraform -chdir=test/migration/step1 init -upgrade; \
+	  terraform -chdir=test/migration/step1 apply -auto-approve; \
+	  set +e; terraform -chdir=test/migration/step1 plan -detailed-exitcode; code=$$?; set -e; \
+	  if [ "$$code" != "0" ]; then echo "Step1 plan returned $$code (expected 0)"; $(MAKE) graylog-down; exit 1; fi; \
+	  echo "==== Upgrade to Graylog 6.x ===="; \
+	  $(MAKE) GRAYLOG_VERSION=6.0 graylog-up-graylog; \
+	  $(MAKE) graylog-wait; \
+	  terraform -chdir=test/migration/step2 init -upgrade; \
+	  terraform -chdir=test/migration/step2 apply -auto-approve; \
+	  set +e; terraform -chdir=test/migration/step2 plan -detailed-exitcode; code=$$?; set -e; \
+	  if [ "$$code" != "0" ]; then echo "Step2 plan returned $$code (expected 0)"; $(MAKE) graylog-down; exit 1; fi; \
+	  echo "==== Upgrade to Graylog 7.x ===="; \
+	  $(MAKE) GRAYLOG_VERSION=7.0 graylog-up-graylog; \
+	  $(MAKE) graylog-wait; \
+	  terraform -chdir=test/migration/step3 init -upgrade; \
+	  terraform -chdir=test/migration/step3 apply -auto-approve; \
+	  set +e; terraform -chdir=test/migration/step3 plan -detailed-exitcode; code=$$?; set -e; \
+	  if [ "$$code" != "0" ]; then echo "Step3 plan returned $$code (expected 0)"; $(MAKE) graylog-down; exit 1; fi; \
+	  if [ -z "${SKIP_DESTROY:-}" ]; then \
+	    echo "==== Destroying after successful migration ===="; \
+	    terraform -chdir=test/migration/step3 destroy -auto-approve || true; \
+	  fi; \
+	  $(MAKE) graylog-down >/dev/null; \
+	  echo "Migration test passed (5→6→7)"'
+
+# ---------- Sequential Graylog upgrade (manual diagnostics) ----------
+# Starts GL 5.0 -> waits -> upgrades to 6.0 -> waits -> upgrades to 7.0 -> waits
+# Uses a single MongoDB version (default MONGO_TAG=7.0) and preserves volumes between upgrades
+graylog-upgrade-seq:
+	@bash -lc 'set -euo pipefail; \
+	  export MONGO_TAG="$${MONGO_TAG:-7.0}"; \
+	  echo "[1/3] Starting Graylog 5.0 with Mongo $$MONGO_TAG"; \
+	  $(MAKE) GRAYLOG_VERSION=5.0 graylog-up >/dev/null; \
+	  { $(MAKE) graylog-wait >/dev/null && echo "Graylog 5.0 is up"; } || { echo "Graylog 5.0 failed to become ready"; $(MAKE) graylog-ps; $(MAKE) graylog-logs; exit 1; }; \
+	  echo "[2/3] Upgrading to Graylog 6.0 (preserving volumes)"; \
+	  $(MAKE) graylog-stop >/dev/null; \
+	  $(MAKE) GRAYLOG_VERSION=6.0 graylog-up >/dev/null; \
+	  { $(MAKE) graylog-wait >/dev/null && echo "Graylog 6.0 is up"; } || { echo "Graylog 6.0 failed to become ready"; $(MAKE) graylog-ps; $(MAKE) graylog-logs; exit 1; }; \
+	  echo "[3/3] Upgrading to Graylog 7.0 (preserving volumes)"; \
+	  $(MAKE) graylog-stop >/dev/null; \
+	  $(MAKE) GRAYLOG_VERSION=7.0 graylog-up >/dev/null; \
+	  { $(MAKE) graylog-wait >/dev/null && echo "Graylog 7.0 is up"; } || { echo "Graylog 7.0 failed to become ready"; $(MAKE) graylog-ps; $(MAKE) graylog-logs; exit 1; }; \
+	  echo "Sequential upgrade succeeded (5.0 → 6.0 → 7.0)"'
 
 release: clean build-all
 	@echo "Creating release..."

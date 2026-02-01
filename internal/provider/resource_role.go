@@ -62,7 +62,7 @@ func (r *roleResource) Create(ctx context.Context, req resource.CreateRequest, r
 		}
 		perms = append(perms, p.ValueString())
 	}
-	created, err := r.client.CreateRole(&client.Role{
+	created, err := r.client.WithContext(ctx).CreateRole(&client.Role{
 		Name:        data.Name.ValueString(),
 		Description: data.Description.ValueString(),
 		Permissions: perms,
@@ -86,7 +86,7 @@ func (r *roleResource) Read(ctx context.Context, req resource.ReadRequest, resp 
 	if name == "" {
 		name = data.ID.ValueString()
 	}
-	ro, err := r.client.GetRole(name)
+	ro, err := r.client.WithContext(ctx).GetRole(name)
 	if err != nil {
 		resp.Diagnostics.AddError("Error reading role", err.Error())
 		return
@@ -116,13 +116,22 @@ func (r *roleResource) Update(ctx context.Context, req resource.UpdateRequest, r
 		}
 		perms = append(perms, p.ValueString())
 	}
-	if _, err := r.client.UpdateRole(data.Name.ValueString(), &client.Role{
+	if _, err := r.client.WithContext(ctx).UpdateRole(data.Name.ValueString(), &client.Role{
 		Name:        data.Name.ValueString(),
 		Description: data.Description.ValueString(),
 		Permissions: perms,
 	}); err != nil {
 		resp.Diagnostics.AddError("Error updating role", err.Error())
 		return
+	}
+	// Ensure all computed fields are known after apply
+	if ro, err := r.client.WithContext(ctx).GetRole(data.Name.ValueString()); err == nil {
+		data.ReadOnly = types.BoolValue(ro.ReadOnly)
+		data.ID = types.StringValue(ro.Name)
+	} else {
+		// Fallback to false if read fails; will be corrected on next Read
+		data.ReadOnly = types.BoolValue(false)
+		data.ID = types.StringValue(data.Name.ValueString())
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
@@ -133,7 +142,7 @@ func (r *roleResource) Delete(ctx context.Context, req resource.DeleteRequest, r
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	if err := r.client.DeleteRole(data.Name.ValueString()); err != nil {
+	if err := r.client.WithContext(ctx).DeleteRole(data.Name.ValueString()); err != nil {
 		resp.Diagnostics.AddError("Error deleting role", err.Error())
 		return
 	}

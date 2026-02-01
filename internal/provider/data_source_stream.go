@@ -53,7 +53,7 @@ func (d *streamDataSource) Read(ctx context.Context, req datasource.ReadRequest,
 		return
 	}
 
-	s, err := d.client.GetStream(data.ID.ValueString())
+	s, err := d.client.WithContext(ctx).GetStream(data.ID.ValueString())
 	if err != nil {
 		if errors.Is(err, client.ErrNotFound) {
 			resp.Diagnostics.AddError("Stream not found", "The stream with the specified ID was not found")

@@ -95,7 +95,7 @@ func (r *alertResource) Create(ctx context.Context, req resource.CreateRequest, 
 		nids = append(nids, v.ValueString())
 	}
 
-	created, err := r.client.CreateEventDefinition(&client.EventDefinition{
+	created, err := r.client.WithContext(ctx).CreateEventDefinition(&client.EventDefinition{
 		Title:           data.Title.ValueString(),
 		Description:     data.Description.ValueString(),
 		Priority:        int(data.Priority.ValueInt64()),
@@ -118,7 +118,7 @@ func (r *alertResource) Read(ctx context.Context, req resource.ReadRequest, resp
 		return
 	}
 
-	ed, err := r.client.GetEventDefinition(data.ID.ValueString())
+	ed, err := r.client.WithContext(ctx).GetEventDefinition(data.ID.ValueString())
 	if err != nil {
 		if errors.Is(err, client.ErrNotFound) {
 			resp.State.RemoveResource(ctx)
@@ -177,7 +177,7 @@ func (r *alertResource) Update(ctx context.Context, req resource.UpdateRequest, 
 		nids = append(nids, v.ValueString())
 	}
 
-	_, err := r.client.UpdateEventDefinition(data.ID.ValueString(), &client.EventDefinition{
+	_, err := r.client.WithContext(ctx).UpdateEventDefinition(data.ID.ValueString(), &client.EventDefinition{
 		Title:           data.Title.ValueString(),
 		Description:     data.Description.ValueString(),
 		Priority:        int(data.Priority.ValueInt64()),
@@ -207,7 +207,7 @@ func (r *alertResource) Delete(ctx context.Context, req resource.DeleteRequest, 
 	ctx, cancel := context.WithTimeout(ctx, deleteTimeout)
 	defer cancel()
 
-	if err := r.client.DeleteEventDefinition(data.ID.ValueString()); err != nil {
+	if err := r.client.WithContext(ctx).DeleteEventDefinition(data.ID.ValueString()); err != nil {
 		resp.Diagnostics.AddError("Error deleting alert", err.Error())
 	}
 }
