@@ -1,12 +1,12 @@
 ---
-page_title: "graylog_stream Resource - Graylog"
+page_title: "graylog_stream Resource - Graylog Terraform Provider"
 description: |-
-  Manages a Graylog stream with dedicated stream rules API (create/read/update/delete). Supports rule resynchronization on updates.
+  Terraform Graylog provider: manage Graylog streams and rules (automation/IaC). Keywords: terraform graylog provider, graylog terraform, terraform graylog, graylog automation, Graylog operation automation. Supports rule resynchronization on updates.
 ---
 
 # graylog_stream (Resource)
 
-Manages a Graylog stream. Stream rules are managed via dedicated Graylog APIs and are resynchronized on updates (existing rules are removed and recreated to match the plan).
+Manages a Graylog stream. Part of the Graylog Terraform Provider for Graylog automation. Stream rules are managed via dedicated Graylog APIs and are resynchronized on updates (existing rules are removed and recreated to match the plan).
 
 ## Example Usage
 

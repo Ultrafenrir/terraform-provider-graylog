@@ -1,12 +1,12 @@
 ---
-page_title: "graylog_input Resource - Graylog"
+page_title: "graylog_input Resource - Graylog Terraform Provider"
 description: |-
-  Manages a Graylog input. Supports flexible configuration map for all input types (incl. Kafka) and optional extractors.
+  Terraform Graylog provider: manage Graylog inputs (flexible configuration, extractors) for automation/IaC. Keywords: terraform graylog provider, graylog terraform, terraform graylog, graylog automation, Graylog operation automation.
 ---
 
 # graylog_input (Resource)
 
-Manages a Graylog input. Compatible with Graylog v5/v6/v7. The `configuration` attribute is passed as JSON string (use `jsonencode({...})`) supporting strings, numbers, booleans, lists and nested objects, covering all input types (including Kafka inputs). Extractors can be managed alongside the input via a JSON-encoded list.
+Manages a Graylog input. Part of the Graylog Terraform Provider for Graylog automation. Compatible with Graylog v5/v6/v7. The `configuration` attribute is passed as JSON string (use `jsonencode({...})`) supporting strings, numbers, booleans, lists and nested objects, covering all input types (including Kafka inputs). Extractors can be managed alongside the input via a JSON-encoded list.
 
 ## Example Usage
 

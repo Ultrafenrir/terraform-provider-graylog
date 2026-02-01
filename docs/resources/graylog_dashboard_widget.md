@@ -1,13 +1,13 @@
 ---
-page_title: "graylog_dashboard_widget Resource"
+page_title: "graylog_dashboard_widget Resource - Graylog Terraform Provider"
 subcategory: "Dashboards"
 description: |-
-  Manages a widget on a classic Graylog dashboard.
+  Terraform Graylog provider: manage classic Graylog dashboard widgets (automation/IaC). Keywords: terraform graylog provider, graylog terraform, terraform graylog, graylog automation, Graylog operation automation.
 ---
 
 # graylog_dashboard_widget (Resource)
 
-Manages a widget on a classic Graylog dashboard. Supports Graylog v5, v6, and v7.
+Manages a widget on a classic Graylog dashboard. Part of the Graylog Terraform Provider for Graylog automation. Supports Graylog v5, v6, and v7.
 
 Note: This resource targets classic dashboards (not Views). If you need Views widgets, consider opening an issue for `views` support.
 

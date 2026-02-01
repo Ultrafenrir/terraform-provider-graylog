@@ -1,13 +1,13 @@
 ---
-page_title: "Graylog Provider"
+page_title: "Graylog Terraform Provider — Graylog automation with Terraform"
 subcategory: ""
 description: |-
-  Terraform provider for managing Graylog resources: streams (with rules), inputs (with extractors), index sets, pipelines, dashboards, and alerts (Event Definitions). Supports Graylog v5, v6, and v7.
+  Terraform Graylog provider to automate Graylog operations (streams with rules, inputs with extractors, index sets, pipelines, dashboards, alerts/Event Definitions, notifications). Works with Graylog v5, v6, v7. Keywords: terraform graylog provider, graylog terraform, terraform graylog, graylog automation, Graylog operation automation.
 ---
 
-# Graylog Provider
+# Graylog Terraform Provider
 
-The Graylog provider manages:
+The Terraform provider for Graylog manages:
 - Streams (with stream rules)
 - Inputs (with flexible configuration and optional extractors)
 - Index sets
@@ -18,7 +18,7 @@ The Graylog provider manages:
 - Users (local)
 - Dashboard Widgets (classic dashboards)
 
-## Example Usage
+## Example Usage (Terraform Graylog)
 
 ```hcl
 terraform {
@@ -36,11 +36,19 @@ provider "graylog" {
 }
 ```
 
-See resource and data source pages for detailed examples.
+See resource and data source pages for detailed examples of Graylog automation with Terraform.
 
 ## Authentication
 - `url` — Graylog API base URL (often `http://<host>:9000/api`).
 - `token` — Basic auth encoded as base64(`user:pass`) or an API token.
 
 ## Compatibility
-The provider targets Graylog v5, v6, and v7. For Graylog v6/v7, API requests automatically use the `/api` prefix where required.
+The provider targets Graylog v5, v6, and v7. For Graylog v6/v7, API requests automatically use the `/api` prefix where required. Designed for repeatable Graylog operation automation with Terraform.
+
+## Supported Graylog versions
+
+- Graylog 5.x
+- Graylog 6.x
+- Graylog 7.x
+
+Validation matrix: integration, acceptance, and migration tests are executed in CI across all listed major versions to ensure ongoing compatibility.

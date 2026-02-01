@@ -1,12 +1,12 @@
 ---
-page_title: "graylog_index_set Data Source - Graylog"
+page_title: "graylog_index_set Data Source - Graylog Terraform Provider"
 description: |-
-  Retrieves a Graylog index set by filters (e.g., by title).
+  Terraform Graylog provider: retrieve Graylog index sets by filters (e.g., by title) for automation/IaC. Keywords: terraform graylog provider, graylog terraform, terraform graylog, graylog automation, Graylog operation automation.
 ---
 
 # graylog_index_set (Data Source)
 
-Retrieve information about a Graylog index set.
+Retrieve information about a Graylog index set. Part of the Graylog Terraform Provider for Graylog automation.
 
 ## Example Usage
 

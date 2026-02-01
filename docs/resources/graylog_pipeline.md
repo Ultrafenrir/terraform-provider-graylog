@@ -1,12 +1,12 @@
 ---
-page_title: "graylog_pipeline Resource - Graylog"
+page_title: "graylog_pipeline Resource - Graylog Terraform Provider"
 description: |-
-  Manages a classic Graylog pipeline. The full pipeline definition can be provided via the `source` attribute.
+  Terraform Graylog provider: manage classic Graylog pipelines (DSL in `source`) for automation/IaC. Keywords: terraform graylog provider, graylog terraform, terraform graylog, graylog automation, Graylog operation automation.
 ---
 
 # graylog_pipeline (Resource)
 
-Manages a classic Graylog pipeline. Provide the entire pipeline DSL in the `source` attribute or manage only metadata (title/description).
+Manages a classic Graylog pipeline. Part of the Graylog Terraform Provider for Graylog automation. Provide the entire pipeline DSL in the `source` attribute or manage only metadata (title/description).
 
 ## Example Usage
 

@@ -1,12 +1,12 @@
 ---
-page_title: "graylog_index_set Resource - Graylog"
+page_title: "graylog_index_set Resource - Graylog Terraform Provider"
 description: |-
-  Manages a Graylog index set.
+  Terraform Graylog provider: manage Graylog index sets (automation/IaC). Useful keywords: terraform graylog provider, graylog terraform, terraform graylog, graylog automation, Graylog operation automation.
 ---
 
 # graylog_index_set (Resource)
 
-Manages a Graylog index set.
+Manages a Graylog index set. Part of the Graylog Terraform Provider for Graylog automation.
 
 ## Example Usage
 
