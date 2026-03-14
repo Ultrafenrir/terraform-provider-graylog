@@ -1,6 +1,6 @@
 ---
 page_title: "graylog_ldap_setting Resource - Graylog Terraform Provider"
-subcategory: "Security"
+subcategory: "Users & Security"
 description: |-
   Terraform Graylog provider: manage global LDAP settings in Graylog (singleton). Keywords: terraform graylog provider, graylog terraform, terraform graylog, graylog automation, Graylog operation automation. Управляет глобальными настройками LDAP в Graylog (singleton ресурс).
 ---

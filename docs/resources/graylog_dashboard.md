@@ -1,5 +1,6 @@
 ---
 page_title: "graylog_dashboard Resource - Graylog Terraform Provider"
+subcategory: "Dashboards"
 description: |-
   Terraform Graylog provider: manage classic Graylog dashboards (automation/IaC). Keywords: terraform graylog provider, graylog terraform, terraform graylog, graylog automation, Graylog operation automation.
 ---

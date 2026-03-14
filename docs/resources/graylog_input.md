@@ -1,5 +1,6 @@
 ---
 page_title: "graylog_input Resource - Graylog Terraform Provider"
+subcategory: "Inputs & Outputs"
 description: |-
   Terraform Graylog provider: manage Graylog inputs (flexible configuration, extractors) for automation/IaC. Keywords: terraform graylog provider, graylog terraform, terraform graylog, graylog automation, Graylog operation automation.
 ---

@@ -1,6 +1,6 @@
 ---
 page_title: "graylog_user Resource - Graylog Terraform Provider"
-subcategory: "Security"
+subcategory: "Users & Security"
 description: |-
   Terraform Graylog provider: manage Graylog local users (roles/password). Keywords: terraform graylog provider, graylog terraform, terraform graylog, graylog automation, Graylog operation automation.
 ---
