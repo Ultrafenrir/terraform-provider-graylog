@@ -55,6 +55,12 @@ resource "graylog_stream" "errors" {
 
 ## Import
 
+You can import by ID (UUID/24-hex) or by exact title. For title-based import, use the explicit `title:` prefix. If multiple streams share the same title, import by ID.
+
 ```bash
-terraform import graylog_stream.s <stream_id>
+# By ID
+terraform import graylog_stream.s 5f3c2a0b9e0f1a2b3c4d5e6f
+
+# By title (exact match)
+terraform import graylog_stream.s "title:errors"
 ```

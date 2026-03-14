@@ -9,12 +9,16 @@ services:
       retries: 10
 
   opensearch:
-    image: opensearchproject/opensearch:${OPENSEARCH_TAG:-2.17.1}
+    build:
+      context: ./compose/opensearch
+      args:
+        OPENSEARCH_TAG: ${OPENSEARCH_TAG:-2.17.1}
     environment:
       - discovery.type=single-node
       - plugins.security.disabled=true
       - DISABLE_INSTALL_DEMO_CONFIG=true
-      - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
+      - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m -Dopensearch.allow_insecure_settings=true"
+      - path.repo=/usr/share/opensearch/snapshots
     ulimits:
       memlock:
         soft: -1
@@ -22,6 +26,8 @@ services:
     restart: unless-stopped
     ports:
       - "9200:9200"
+    volumes:
+      - ./compose/os_snapshots:/usr/share/opensearch/snapshots
     healthcheck:
       test: ["CMD-SHELL", "curl -s http://localhost:9200 >/dev/null"]
       interval: 10s
@@ -57,3 +63,46 @@ services:
       interval: 10s
       timeout: 5s
       retries: 30
+
+  # S3-compatible storage for OpenSearch snapshot repository tests
+  minio:
+    image: minio/minio:latest
+    environment:
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin
+    command: server /data --console-address ":9001"
+    ports:
+      - "9002:9000" # S3 API (avoid conflict with Graylog 9000)
+      - "9001:9001" # Console
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9000/minio/health/ready >/dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  minio-setup:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      - MC_HOST_alias=http://minioadmin:minioadmin@minio:9000
+    entrypoint: /bin/sh
+    command: -c "mc alias set local http://minio:9000 minioadmin minioadmin && mc mb -p local/tf-snapshots || true && mc anonymous set download local/tf-snapshots || true"
+
+  # OpenLDAP for LDAP data source tests (dev-only)
+  openldap:
+    build:
+      context: ./compose/openldap
+    environment:
+      - LDAP_ORGANISATION=Example Org
+      - LDAP_DOMAIN=example.org
+      - LDAP_ADMIN_PASSWORD=admin
+    ports:
+      - "1389:389"
+
+volumes:
+  os_snapshots:
+  minio_data:

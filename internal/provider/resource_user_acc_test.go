@@ -5,11 +5,13 @@ package provider
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 )
 
 func TestAccUser_basic(t *testing.T) {
+	uname := fmt.Sprintf("acc-user-%d", time.Now().UnixNano())
 	resource.ParallelTest(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
@@ -18,16 +20,16 @@ func TestAccUser_basic(t *testing.T) {
 				ExpectNonEmptyPlan: true,
 				Config: testAccProviderConfig() + fmt.Sprintf(`
 resource "graylog_user" "u" {
-  username = "acc-user"
+  username = "%s"
   full_name = "Acc User"
   email = "acc@example.com"
   roles = ["Reader"]
   password = "ChangeMe123!"
 }
-`),
+`, uname),
 				Check: resource.ComposeTestCheckFunc(
 					resource.TestCheckResourceAttrSet("graylog_user.u", "id"),
-					resource.TestCheckResourceAttr("graylog_user.u", "username", "acc-user"),
+					resource.TestCheckResourceAttr("graylog_user.u", "username", uname),
 				),
 			},
 			{

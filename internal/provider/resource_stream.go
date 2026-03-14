@@ -3,6 +3,9 @@ package provider
 import (
 	"context"
 	"errors"
+	"fmt"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/Ultrafenrir/terraform-provider-graylog/internal/client"
@@ -201,20 +204,23 @@ func (r *streamResource) Read(ctx context.Context, req resource.ReadRequest, res
 }
 
 func (r *streamResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	var data streamModel
-	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
+	var plan streamModel
+	var state streamModel
+	// Для корректного обновления используем ID из state (в Plan он обычно отсутствует)
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	// Runtime validation
-	resp.Diagnostics.Append(validateStream(&data)...)
+	// Runtime validation (по плану)
+	resp.Diagnostics.Append(validateStream(&plan)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
 	// Apply timeout
-	updateTimeout, diags := data.Timeouts.Update(ctx, 5*time.Minute)
+	updateTimeout, diags := plan.Timeouts.Update(ctx, 5*time.Minute)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -222,25 +228,59 @@ func (r *streamResource) Update(ctx context.Context, req resource.UpdateRequest,
 	ctx, cancel := context.WithTimeout(ctx, updateTimeout)
 	defer cancel()
 
-	_, err := r.client.WithContext(ctx).UpdateStream(data.ID.ValueString(), &client.Stream{
-		Title:       data.Title.ValueString(),
-		Description: data.Description.ValueString(),
-		Disabled:    data.Disabled.ValueBool(),
-		IndexSetID:  data.IndexSetID.ValueString(),
+	streamID := state.ID.ValueString()
+	_, err := r.client.WithContext(ctx).UpdateStream(streamID, &client.Stream{
+		Title:       plan.Title.ValueString(),
+		Description: plan.Description.ValueString(),
+		Disabled:    plan.Disabled.ValueBool(),
+		IndexSetID:  plan.IndexSetID.ValueString(),
 	})
 	if err != nil {
 		resp.Diagnostics.AddError("Error updating stream", err.Error())
 		return
 	}
-	// Resync rules: fetch existing, delete all, recreate from plan
-	if existing, err := r.client.WithContext(ctx).ListStreamRules(data.ID.ValueString()); err == nil {
-		for _, ex := range existing {
+	// Diff-aware sync of rules: delete extra, create missing; keep matching ones
+	// Build maps by stable key
+	existing, err := r.client.WithContext(ctx).ListStreamRules(streamID)
+	if err != nil {
+		resp.Diagnostics.AddError("Error listing stream rules", err.Error())
+		return
+	}
+	type ruleKey string
+	makeKey := func(f string, t int, v string, inv bool, desc string) ruleKey {
+		return ruleKey(fmt.Sprintf("%s|%d|%s|%t|%s", f, t, v, inv, desc))
+	}
+	exByKey := make(map[ruleKey]string)
+	for _, ex := range existing {
+		k := makeKey(ex.Field, ex.Type, ex.Value, ex.Inverted, ex.Description)
+		exByKey[k] = ex.ID
+	}
+	desiredKeys := make(map[ruleKey]struct{})
+	for _, rr := range plan.Rules {
+		k := makeKey(rr.Field.ValueString(), int(rr.Type.ValueInt64()), rr.Value.ValueString(), rr.Inverted.ValueBool(), rr.Description.ValueString())
+		desiredKeys[k] = struct{}{}
+	}
+	// Delete rules that are not desired
+	for _, ex := range existing {
+		k := makeKey(ex.Field, ex.Type, ex.Value, ex.Inverted, ex.Description)
+		if _, ok := desiredKeys[k]; !ok {
 			if ex.ID != "" {
-				_ = r.client.WithContext(ctx).DeleteStreamRule(data.ID.ValueString(), ex.ID)
+				_ = r.client.WithContext(ctx).DeleteStreamRule(streamID, ex.ID)
 			}
 		}
 	}
-	for i, rr := range data.Rules {
+	// Create rules that are missing
+	for i, rr := range plan.Rules {
+		k := makeKey(rr.Field.ValueString(), int(rr.Type.ValueInt64()), rr.Value.ValueString(), rr.Inverted.ValueBool(), rr.Description.ValueString())
+		if _, ok := exByKey[k]; ok {
+			// Already present — if ID known in state, keep it; otherwise fill from map
+			if plan.Rules[i].ID.IsNull() || plan.Rules[i].ID.IsUnknown() || plan.Rules[i].ID.ValueString() == "" {
+				if id := exByKey[k]; id != "" {
+					plan.Rules[i].ID = types.StringValue(id)
+				}
+			}
+			continue
+		}
 		rule := &client.StreamRule{
 			Field:       rr.Field.ValueString(),
 			Type:        int(rr.Type.ValueInt64()),
@@ -248,16 +288,18 @@ func (r *streamResource) Update(ctx context.Context, req resource.UpdateRequest,
 			Inverted:    rr.Inverted.ValueBool(),
 			Description: rr.Description.ValueString(),
 		}
-		cr, err := r.client.WithContext(ctx).CreateStreamRule(data.ID.ValueString(), rule)
+		cr, err := r.client.WithContext(ctx).CreateStreamRule(streamID, rule)
 		if err != nil {
 			resp.Diagnostics.AddError("Error creating stream rule", err.Error())
 			return
 		}
 		if cr != nil && cr.ID != "" {
-			data.Rules[i].ID = types.StringValue(cr.ID)
+			plan.Rules[i].ID = types.StringValue(cr.ID)
 		}
 	}
-	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+	// Обновим состояние: ID берём из state, прочие поля — из плана
+	plan.ID = types.StringValue(streamID)
+	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
 // validateStream performs basic checks for required fields and rule contents.
@@ -304,5 +346,48 @@ func (r *streamResource) Delete(ctx context.Context, req resource.DeleteRequest,
 }
 
 func (r *streamResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
+	raw := req.ID
+	if raw == "" {
+		resp.Diagnostics.AddError("Empty import ID", "Provide a stream ID (UUID) or a title to import by title.")
+		return
+	}
+	// If value looks like UUID or Mongo ObjectID (24 hex), pass through as id
+	isUUID := regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`).MatchString
+	isHex24 := regexp.MustCompile(`(?i)^[0-9a-f]{24}$`).MatchString
+	val := strings.TrimSpace(raw)
+	if isUUID(val) || isHex24(val) {
+		resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), val)...) //nolint:errcheck
+		return
+	}
+	// Support explicit prefix title:My Stream Title
+	const prefix = "title:"
+	if strings.HasPrefix(strings.ToLower(val), prefix) {
+		val = strings.TrimSpace(val[len(prefix):])
+	}
+	// Resolve by title via API
+	if r.client == nil {
+		resp.Diagnostics.AddError("Provider not configured", "Client is nil; cannot resolve stream by title during import.")
+		return
+	}
+	list, err := r.client.WithContext(ctx).ListStreams()
+	if err != nil {
+		resp.Diagnostics.AddError("Unable to list streams for import", err.Error())
+		return
+	}
+	matches := make([]client.Stream, 0)
+	for _, s := range list {
+		if s.Title == val {
+			matches = append(matches, s)
+		}
+	}
+	if len(matches) == 1 {
+		resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), matches[0].ID)...) //nolint:errcheck
+		return
+	}
+	if len(matches) == 0 {
+		resp.Diagnostics.AddError("Stream not found by title", "No stream found with exact title: "+val+". Provide a UUID or an exact title.")
+		return
+	}
+	// Ambiguous
+	resp.Diagnostics.AddError("Multiple streams match title", "Found "+fmt.Sprintf("%d", len(matches))+" streams with title '"+val+"'. Please import by UUID.")
 }

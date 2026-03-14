@@ -1,5 +1,5 @@
 PLUGIN=terraform-provider-graylog
-VERSION=0.1.0
+VERSION=0.3.0
 # Graylog version without image prefix (e.g., 5.0, 6.0, 7.0)
 GRAYLOG_VERSION ?= 6.0
 
@@ -98,10 +98,32 @@ test-acc-integration: graylog-up graylog-wait
 	  GL_BASIC=$$(printf "admin:admin" | base64); \
 	  export URL="$${URL:-http://127.0.0.1:9000/api}"; \
 	  export TOKEN="$${TOKEN:-$$GL_BASIC}"; \
+	  export ENABLE_OS_SNAPSHOT_ACC="$${ENABLE_OS_SNAPSHOT_ACC:-1}"; \
+	  export ENABLE_OS_S3_ACC="$${ENABLE_OS_S3_ACC:-1}"; \
+	  export ENABLE_LDAP_ACC="$${ENABLE_LDAP_ACC:-1}"; \
 	  TF_ACC=1 go test -v -tags=acceptance -run "^TestAcc" -timeout $(TIMEOUT) ./internal/provider'; \
 	status=$$?; \
 	$(MAKE) graylog-down; \
 	exit $$status
+
+# Ensure no leftover containers/volumes before bringing the stack up
+.PHONY: graylog-clean
+graylog-clean:
+	@echo "Cleaning up any leftover compose resources..."
+	@docker compose down -v --remove-orphans || true
+
+# Override graylog-up to depend on cleanup first
+.PHONY: graylog-up
+graylog-up: graylog-clean
+	@echo "Starting Graylog stack via docker-compose..."
+	@bash -c 'set -e; \
+	  mongo="$${MONGO_TAG:-7.0}"; \
+	  os="$${OPENSEARCH_TAG:-2.17.1}"; \
+	  echo Using MongoDB $$mongo and OpenSearch $$os for Graylog $(GRAYLOG_VERSION); \
+	  # Ensure OpenSearch snapshots directory exists and is writable by container user \
+	  mkdir -p ./compose/os_snapshots; \
+	  chmod -R 0777 ./compose/os_snapshots || true; \
+	  MONGO_TAG="$$mongo" OPENSEARCH_TAG="$$os" GRAYLOG_VERSION="$(GRAYLOG_VERSION)" docker compose up -d --remove-orphans'
 
 # Run acceptance tests once for the current GRAYLOG_VERSION
 test-acc-one:
@@ -135,6 +157,9 @@ graylog-up:
 	  mongo="$${MONGO_TAG:-7.0}"; \
 	  os="$${OPENSEARCH_TAG:-2.17.1}"; \
 	  echo Using MongoDB $$mongo and OpenSearch $$os for Graylog $(GRAYLOG_VERSION); \
+	  # Ensure OpenSearch snapshots directory exists and is writable by container user \
+	  mkdir -p ./compose/os_snapshots; \
+	  chmod -R 0777 ./compose/os_snapshots || true; \
 	  MONGO_TAG="$$mongo" OPENSEARCH_TAG="$$os" GRAYLOG_VERSION="$(GRAYLOG_VERSION)" docker compose up -d --remove-orphans'
 
 # Recreate ONLY the Graylog service (keep Mongo/OpenSearch running)

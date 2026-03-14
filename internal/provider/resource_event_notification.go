@@ -59,11 +59,21 @@ func (r *eventNotificationResource) Create(ctx context.Context, req resource.Cre
 	if resp.Diagnostics.HasError() {
 		return
 	}
+	// Capability gating: Event Notifications must be supported
+	caps := r.client.GetCapabilities()
+	resp.Diagnostics.Append(ensureFeature(ctx, r.client, caps.EventNotifications, "event_notifications", "try Graylog 6/7 or appropriate image")...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
 	// Parse config
 	var cfg map[string]interface{}
 	if err := json.Unmarshal([]byte(data.Config.ValueString()), &cfg); err != nil {
 		resp.Diagnostics.AddAttributeError(path.Root("config"), "Invalid JSON", err.Error())
 		return
+	}
+	// Canonicalize JSON to eliminate spurious diffs
+	if canon, err := CanonicalizeJSONValue(cfg); err == nil {
+		data.Config = types.StringValue(canon)
 	}
 	createTimeout, diags := data.Timeouts.Create(ctx, 3*time.Minute)
 	resp.Diagnostics.Append(diags...)
@@ -105,8 +115,11 @@ func (r *eventNotificationResource) Read(ctx context.Context, req resource.ReadR
 	data.Title = types.StringValue(got.Title)
 	data.Type = types.StringValue(got.Type)
 	data.Description = types.StringValue(got.Description)
-	b, _ := json.Marshal(got.Config)
-	data.Config = types.StringValue(string(b))
+	if canon, err := CanonicalizeJSONValue(got.Config); err == nil {
+		data.Config = types.StringValue(canon)
+	} else if b, err2 := json.Marshal(got.Config); err2 == nil { // fallback
+		data.Config = types.StringValue(string(b))
+	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
@@ -116,10 +129,20 @@ func (r *eventNotificationResource) Update(ctx context.Context, req resource.Upd
 	if resp.Diagnostics.HasError() {
 		return
 	}
+	// Capability gating: Event Notifications must be supported
+	caps := r.client.GetCapabilities()
+	resp.Diagnostics.Append(ensureFeature(ctx, r.client, caps.EventNotifications, "event_notifications", "try Graylog 6/7 or appropriate image")...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
 	var cfg map[string]interface{}
 	if err := json.Unmarshal([]byte(data.Config.ValueString()), &cfg); err != nil {
 		resp.Diagnostics.AddAttributeError(path.Root("config"), "Invalid JSON", err.Error())
 		return
+	}
+	// Canonicalize JSON
+	if canon, err := CanonicalizeJSONValue(cfg); err == nil {
+		data.Config = types.StringValue(canon)
 	}
 	updateTimeout, diags := data.Timeouts.Update(ctx, 3*time.Minute)
 	resp.Diagnostics.Append(diags...)

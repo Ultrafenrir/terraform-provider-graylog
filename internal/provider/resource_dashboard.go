@@ -3,6 +3,9 @@ package provider
 import (
 	"context"
 	"errors"
+	"fmt"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/Ultrafenrir/terraform-provider-graylog/internal/client"
@@ -52,6 +55,13 @@ func (r *dashboardResource) Configure(_ context.Context, req resource.ConfigureR
 func (r *dashboardResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var data dashboardModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	// Capability gating: classic dashboards CRUD must be supported by this instance
+	caps := r.client.GetCapabilities()
+	resp.Diagnostics.Append(ensureFeature(ctx, r.client, caps.ClassicDashboardsCRUD, "classic_dashboards_crud", "try Graylog 7.x or appropriate image")...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -106,6 +116,13 @@ func (r *dashboardResource) Read(ctx context.Context, req resource.ReadRequest, 
 func (r *dashboardResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
 	var data dashboardModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	// Capability gating: classic dashboards CRUD must be supported by this instance
+	caps := r.client.GetCapabilities()
+	resp.Diagnostics.Append(ensureFeature(ctx, r.client, caps.ClassicDashboardsCRUD, "classic_dashboards_crud", "try Graylog 7.x or appropriate image")...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -169,5 +186,44 @@ func (r *dashboardResource) Delete(ctx context.Context, req resource.DeleteReque
 }
 
 func (r *dashboardResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
+	raw := req.ID
+	if raw == "" {
+		resp.Diagnostics.AddError("Empty import ID", "Provide a dashboard ID (UUID) or a title to import by title.")
+		return
+	}
+	isUUID := regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`).MatchString
+	isHex24 := regexp.MustCompile(`(?i)^[0-9a-f]{24}$`).MatchString
+	val := strings.TrimSpace(raw)
+	if isUUID(val) || isHex24(val) {
+		resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), val)...) //nolint:errcheck
+		return
+	}
+	const prefix = "title:"
+	if strings.HasPrefix(strings.ToLower(val), prefix) {
+		val = strings.TrimSpace(val[len(prefix):])
+	}
+	if r.client == nil {
+		resp.Diagnostics.AddError("Provider not configured", "Client is nil; cannot resolve dashboard by title during import.")
+		return
+	}
+	list, err := r.client.WithContext(ctx).ListDashboards()
+	if err != nil {
+		resp.Diagnostics.AddError("Unable to list dashboards for import", err.Error())
+		return
+	}
+	matches := make([]client.Dashboard, 0)
+	for _, d := range list {
+		if d.Title == val {
+			matches = append(matches, d)
+		}
+	}
+	if len(matches) == 1 {
+		resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), matches[0].ID)...) //nolint:errcheck
+		return
+	}
+	if len(matches) == 0 {
+		resp.Diagnostics.AddError("Dashboard not found by title", "No dashboard found with exact title: "+val+". Provide a UUID or an exact title.")
+		return
+	}
+	resp.Diagnostics.AddError("Multiple dashboards match title", "Found "+fmt.Sprintf("%d", len(matches))+" dashboards with title '"+val+"'. Please import by UUID.")
 }
