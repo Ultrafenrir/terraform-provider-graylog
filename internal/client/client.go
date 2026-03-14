@@ -855,9 +855,31 @@ func (c *Client) UpdateStream(id string, s *Stream) (*Stream, error) {
 			"remove_matches_from_default_stream": false,
 		}
 	}
-	resp, err := c.doRequest("PUT", path, body)
-	if err != nil {
-		return nil, err
+	// Попытаемся выполнить обновление устойчиво к различиям версий/эндпоинтов.
+	// 1) Основная попытка: PUT
+	// 2) При 405 Method Not Allowed — пробуем PATCH
+	// 3) Если снова 405 — пробуем POST (некоторые инсталляции проксей ограничивают методы)
+	var resp []byte
+	methods := []string{"PUT", "PATCH", "POST"}
+	for i, m := range methods {
+		r, e := c.doRequest(m, path, body)
+		if e == nil {
+			resp = r
+			break
+		}
+		// Если ошибка не о методе (405), а что-то иное, то нет смысла продолжать перебор
+		if ge, ok := e.(*GraylogError); ok {
+			if ge.Status == http.StatusMethodNotAllowed {
+				// попробуем следующий метод
+				if i+1 < len(methods) {
+					continue
+				}
+				// методов больше нет — вернём последнюю ошибку
+				return nil, e
+			}
+		}
+		// Иная ошибка — сразу выходим
+		return nil, e
 	}
 	var out Stream
 	_ = json.Unmarshal(resp, &out)
@@ -1347,22 +1369,52 @@ func (c *Client) GetRole(name string) (*Role, error) {
 func (c *Client) UpdateRole(name string, r *Role) (*Role, error) {
 	// Унифицированный путь для всех версий
 	path := fmt.Sprintf("/api/roles/%s", name)
-	// В некоторых версиях Graylog обновление роли чувствительно к набору полей —
-	// поле `name` и любые иммутабельные значения не должны присутствовать в теле PUT.
-	// Формируем минимальный патч только с изменяемыми полями.
-	payload := struct {
+	// В разных основных версиях Graylog поведение PUT /roles/{name} отличается:
+	// - В 7.x поле name в теле должно отсутствовать (immutable)
+	// - В 6.x сервер может требовать присутствие поля name в теле
+	// Поэтому сначала отправляем «минимальный» payload без name. В случае 400,
+	// явно связанного с отсутствием поля name, повторим запрос с включённым name.
+
+	type updatePayload struct {
+		Name        string   `json:"name,omitempty"`
 		Description string   `json:"description,omitempty"`
 		Permissions []string `json:"permissions,omitempty"`
 		ReadOnly    bool     `json:"read_only,omitempty"`
-	}{
+	}
+
+	minimal := updatePayload{
 		Description: r.Description,
 		Permissions: r.Permissions,
 		ReadOnly:    r.ReadOnly,
 	}
 
-	resp, err := c.doRequest("PUT", path, &payload)
+	resp, err := c.doRequest("PUT", path, &minimal)
 	if err != nil {
-		return nil, err
+		// Если это структурированная ошибка Graylog и она указывает на проблему
+		// c полем name (часто встречается на GL 6.x), попробуем повторить с name.
+		if ge, ok := err.(*GraylogError); ok && ge.Status == 400 {
+			// Проверим текст ошибки и «сырой» ответ на упоминание name
+			raw := strings.ToLower(strings.TrimSpace(ge.Raw))
+			msg := strings.ToLower(strings.TrimSpace(ge.Message))
+			combined := raw + " " + msg
+			if strings.Contains(combined, "name") {
+				withName := updatePayload{
+					Name:        name,
+					Description: r.Description,
+					Permissions: r.Permissions,
+					ReadOnly:    r.ReadOnly,
+				}
+				if r2, err2 := c.doRequest("PUT", path, &withName); err2 == nil {
+					resp = r2
+				} else {
+					return nil, err2
+				}
+			} else {
+				return nil, err
+			}
+		} else {
+			return nil, err
+		}
 	}
 	var out Role
 	_ = json.Unmarshal(resp, &out)

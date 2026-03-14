@@ -204,20 +204,23 @@ func (r *streamResource) Read(ctx context.Context, req resource.ReadRequest, res
 }
 
 func (r *streamResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	var data streamModel
-	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
+	var plan streamModel
+	var state streamModel
+	// Для корректного обновления используем ID из state (в Plan он обычно отсутствует)
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	// Runtime validation
-	resp.Diagnostics.Append(validateStream(&data)...)
+	// Runtime validation (по плану)
+	resp.Diagnostics.Append(validateStream(&plan)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
 	// Apply timeout
-	updateTimeout, diags := data.Timeouts.Update(ctx, 5*time.Minute)
+	updateTimeout, diags := plan.Timeouts.Update(ctx, 5*time.Minute)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -225,11 +228,12 @@ func (r *streamResource) Update(ctx context.Context, req resource.UpdateRequest,
 	ctx, cancel := context.WithTimeout(ctx, updateTimeout)
 	defer cancel()
 
-	_, err := r.client.WithContext(ctx).UpdateStream(data.ID.ValueString(), &client.Stream{
-		Title:       data.Title.ValueString(),
-		Description: data.Description.ValueString(),
-		Disabled:    data.Disabled.ValueBool(),
-		IndexSetID:  data.IndexSetID.ValueString(),
+	streamID := state.ID.ValueString()
+	_, err := r.client.WithContext(ctx).UpdateStream(streamID, &client.Stream{
+		Title:       plan.Title.ValueString(),
+		Description: plan.Description.ValueString(),
+		Disabled:    plan.Disabled.ValueBool(),
+		IndexSetID:  plan.IndexSetID.ValueString(),
 	})
 	if err != nil {
 		resp.Diagnostics.AddError("Error updating stream", err.Error())
@@ -237,7 +241,7 @@ func (r *streamResource) Update(ctx context.Context, req resource.UpdateRequest,
 	}
 	// Diff-aware sync of rules: delete extra, create missing; keep matching ones
 	// Build maps by stable key
-	existing, err := r.client.WithContext(ctx).ListStreamRules(data.ID.ValueString())
+	existing, err := r.client.WithContext(ctx).ListStreamRules(streamID)
 	if err != nil {
 		resp.Diagnostics.AddError("Error listing stream rules", err.Error())
 		return
@@ -252,7 +256,7 @@ func (r *streamResource) Update(ctx context.Context, req resource.UpdateRequest,
 		exByKey[k] = ex.ID
 	}
 	desiredKeys := make(map[ruleKey]struct{})
-	for _, rr := range data.Rules {
+	for _, rr := range plan.Rules {
 		k := makeKey(rr.Field.ValueString(), int(rr.Type.ValueInt64()), rr.Value.ValueString(), rr.Inverted.ValueBool(), rr.Description.ValueString())
 		desiredKeys[k] = struct{}{}
 	}
@@ -261,18 +265,18 @@ func (r *streamResource) Update(ctx context.Context, req resource.UpdateRequest,
 		k := makeKey(ex.Field, ex.Type, ex.Value, ex.Inverted, ex.Description)
 		if _, ok := desiredKeys[k]; !ok {
 			if ex.ID != "" {
-				_ = r.client.WithContext(ctx).DeleteStreamRule(data.ID.ValueString(), ex.ID)
+				_ = r.client.WithContext(ctx).DeleteStreamRule(streamID, ex.ID)
 			}
 		}
 	}
 	// Create rules that are missing
-	for i, rr := range data.Rules {
+	for i, rr := range plan.Rules {
 		k := makeKey(rr.Field.ValueString(), int(rr.Type.ValueInt64()), rr.Value.ValueString(), rr.Inverted.ValueBool(), rr.Description.ValueString())
 		if _, ok := exByKey[k]; ok {
 			// Already present — if ID known in state, keep it; otherwise fill from map
-			if data.Rules[i].ID.IsNull() || data.Rules[i].ID.IsUnknown() || data.Rules[i].ID.ValueString() == "" {
+			if plan.Rules[i].ID.IsNull() || plan.Rules[i].ID.IsUnknown() || plan.Rules[i].ID.ValueString() == "" {
 				if id := exByKey[k]; id != "" {
-					data.Rules[i].ID = types.StringValue(id)
+					plan.Rules[i].ID = types.StringValue(id)
 				}
 			}
 			continue
@@ -284,16 +288,18 @@ func (r *streamResource) Update(ctx context.Context, req resource.UpdateRequest,
 			Inverted:    rr.Inverted.ValueBool(),
 			Description: rr.Description.ValueString(),
 		}
-		cr, err := r.client.WithContext(ctx).CreateStreamRule(data.ID.ValueString(), rule)
+		cr, err := r.client.WithContext(ctx).CreateStreamRule(streamID, rule)
 		if err != nil {
 			resp.Diagnostics.AddError("Error creating stream rule", err.Error())
 			return
 		}
 		if cr != nil && cr.ID != "" {
-			data.Rules[i].ID = types.StringValue(cr.ID)
+			plan.Rules[i].ID = types.StringValue(cr.ID)
 		}
 	}
-	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+	// Обновим состояние: ID берём из state, прочие поля — из плана
+	plan.ID = types.StringValue(streamID)
+	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
 // validateStream performs basic checks for required fields and rule contents.
