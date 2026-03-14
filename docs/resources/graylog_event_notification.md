@@ -9,6 +9,8 @@ description: |-
 
 Manages a Graylog Event Notification. Part of the Graylog Terraform Provider for Graylog automation. Supports Graylog v5, v6, and v7.
 
+> Capability note: доступность Event Notifications зависит от версии/образа. Если API уведомлений недоступен, операции создания/обновления завершатся ранней и понятной ошибкой. См. таблицу совместимости в `docs/index.md`.
+
 ## Example Usage
 
 ```hcl

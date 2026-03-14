@@ -61,6 +61,12 @@ func (r *dashboardWidgetResource) Create(ctx context.Context, req resource.Creat
 	if resp.Diagnostics.HasError() {
 		return
 	}
+	// Capability gating: classic dashboards CRUD/widgets must be supported by this instance
+	caps := r.client.GetCapabilities()
+	resp.Diagnostics.Append(ensureFeature(ctx, r.client, caps.ClassicDashboardsCRUD, "classic_dashboards_crud", "try Graylog 7.x or appropriate image")...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
 	var cfg map[string]interface{}
 	if err := json.Unmarshal([]byte(data.Configuration.ValueString()), &cfg); err != nil {
 		resp.Diagnostics.AddAttributeError(path.Root("configuration"), "Invalid JSON", err.Error())
@@ -117,6 +123,12 @@ func (r *dashboardWidgetResource) Read(ctx context.Context, req resource.ReadReq
 func (r *dashboardWidgetResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
 	var data dashboardWidgetModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	// Capability gating: classic dashboards CRUD/widgets must be supported by this instance
+	caps := r.client.GetCapabilities()
+	resp.Diagnostics.Append(ensureFeature(ctx, r.client, caps.ClassicDashboardsCRUD, "classic_dashboards_crud", "try Graylog 7.x or appropriate image")...)
 	if resp.Diagnostics.HasError() {
 		return
 	}

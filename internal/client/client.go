@@ -3,6 +3,9 @@ package client
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -35,6 +39,27 @@ type Client struct {
 	// ctx — контекст по умолчанию для всех запросов (может быть переопределён через WithContext)
 	ctx    context.Context
 	logger Logger
+
+	// Расширенные настройки аутентификации/транспорта (для 0.3.0)
+	AuthMethod       string // auto|basic_userpass|basic_token|basic_legacy_b64|bearer|none
+	Username         string
+	Password         string
+	APIToken         string
+	APITokenPassword string // по умолчанию пустой; иногда используют "token"
+	BearerToken      string
+
+	// TLS/HTTP
+	InsecureSkipVerify bool
+	CABundlePath       string
+	ClientCertPath     string
+	ClientKeyPath      string
+
+	// OpenSearch support (auxiliary client sharing the same http.Transport)
+	OSBaseURL string
+
+	// Capabilities cache (lazy-probed)
+	capabilities *Capabilities
+	capOnce      sync.Once
 }
 
 func New(baseURL, token string) *Client {
@@ -53,6 +78,182 @@ func New(baseURL, token string) *Client {
 	}
 	c.detectVersion()
 	return c
+}
+
+// Options — расширенные настройки клиента для провайдера Terraform 0.3.0
+type Options struct {
+	// Auth
+	AuthMethod       string // auto|basic_userpass|basic_token|basic_legacy_b64|bearer|none
+	Username         string
+	Password         string
+	APIToken         string
+	APITokenPassword string
+	BearerToken      string
+	LegacyTokenB64   string // совместимость с старым полем token
+
+	// Transport/TLS
+	InsecureSkipVerify bool
+	CABundlePath       string
+	ClientCertPath     string
+	ClientKeyPath      string
+
+	Timeout    time.Duration
+	MaxRetries int
+	RetryWait  time.Duration
+
+	// OpenSearch support
+	OpenSearchURL string
+}
+
+// NewWithOptions создаёт клиента с расширенными возможностями аутентификации и TLS
+func NewWithOptions(baseURL string, opts Options) *Client {
+	c := &Client{
+		BaseURL:            strings.TrimRight(baseURL, "/"),
+		Token:              opts.LegacyTokenB64,
+		HTTP:               buildHTTPClient(opts),
+		MaxRetries:         3,
+		RetryWait:          time.Second,
+		ctx:                context.Background(),
+		logger:             NoopLogger{},
+		AuthMethod:         opts.AuthMethod,
+		Username:           opts.Username,
+		Password:           opts.Password,
+		APIToken:           opts.APIToken,
+		APITokenPassword:   opts.APITokenPassword,
+		BearerToken:        opts.BearerToken,
+		InsecureSkipVerify: opts.InsecureSkipVerify,
+		CABundlePath:       opts.CABundlePath,
+		ClientCertPath:     opts.ClientCertPath,
+		ClientKeyPath:      opts.ClientKeyPath,
+	}
+	// OpenSearch base URL (optional)
+	if opts.OpenSearchURL != "" {
+		c.OSBaseURL = strings.TrimRight(opts.OpenSearchURL, "/")
+	}
+	if opts.MaxRetries > 0 {
+		c.MaxRetries = opts.MaxRetries
+	}
+	if opts.RetryWait > 0 {
+		c.RetryWait = opts.RetryWait
+	}
+	// Нормализуем базовый URL
+	if strings.HasSuffix(c.BaseURL, "/api") {
+		c.BaseURL = strings.TrimSuffix(c.BaseURL, "/api")
+	}
+	c.detectVersion()
+	return c
+}
+
+// Capabilities describes feature availability for current Graylog instance/image
+type Capabilities struct {
+	ClassicDashboardsCRUD bool
+	EventNotifications    bool
+	Streams               bool
+	IndexSets             bool
+}
+
+// GetCapabilities performs a best‑effort probing of supported features and caches the result.
+// It uses lightweight list calls where possible and falls back to version heuristics.
+func (c *Client) GetCapabilities() *Capabilities {
+	c.capOnce.Do(func() {
+		caps := &Capabilities{}
+		// Streams/Index sets are core in all supported versions
+		caps.Streams = true
+		caps.IndexSets = true
+
+		// Event Notifications — try to list; if succeeds, feature is present
+		if _, err := c.ListEventNotifications(); err == nil {
+			caps.EventNotifications = true
+		} else {
+			caps.EventNotifications = false
+		}
+
+		// Classic Dashboards CRUD — generally not on GL 5.x; often missing on 6.x; present on 7.x images supporting legacy dashboards
+		if c.APIVersion == APIV7 {
+			if _, err := c.ListDashboards(); err == nil {
+				caps.ClassicDashboardsCRUD = true
+			}
+		} else {
+			caps.ClassicDashboardsCRUD = false
+		}
+		c.capabilities = caps
+	})
+	return c.capabilities
+}
+
+func buildHTTPClient(opts Options) *http.Client {
+	// Базовая транспортная конфигурация
+	tr := &http.Transport{}
+
+	// TLS
+	tlsCfg := &tls.Config{InsecureSkipVerify: opts.InsecureSkipVerify} //nolint:gosec // управляется пользователем
+	// CA bundle
+	if opts.CABundlePath != "" {
+		// Пытаемся прочитать кастомный корневой пул
+		if pem, err := os.ReadFile(opts.CABundlePath); err == nil {
+			pool := x509.NewCertPool()
+			if pool.AppendCertsFromPEM(pem) {
+				tlsCfg.RootCAs = pool
+			}
+		}
+	}
+	// mTLS client cert
+	if opts.ClientCertPath != "" && opts.ClientKeyPath != "" {
+		if cert, err := tls.LoadX509KeyPair(opts.ClientCertPath, opts.ClientKeyPath); err == nil {
+			tlsCfg.Certificates = []tls.Certificate{cert}
+		}
+	}
+	tr.TLSClientConfig = tlsCfg
+
+	httpClient := &http.Client{Transport: tr}
+	if opts.Timeout > 0 {
+		httpClient.Timeout = opts.Timeout
+	} else {
+		httpClient.Timeout = 30 * time.Second
+	}
+	return httpClient
+}
+
+// setAuthHeader применяет заголовок Authorization согласно выбранному способу аутентификации
+func (c *Client) setAuthHeader(req *http.Request) {
+	method := c.AuthMethod
+	if method == "" || method == "auto" {
+		// авто-выбор в порядке приоритета: user/pass → api_token → bearer → legacy b64
+		switch {
+		case c.Username != "" || c.Password != "":
+			method = "basic_userpass"
+		case c.APIToken != "":
+			method = "basic_token"
+		case c.BearerToken != "":
+			method = "bearer"
+		case c.Token != "":
+			method = "basic_legacy_b64"
+		default:
+			method = "none"
+		}
+	}
+
+	switch method {
+	case "basic_userpass":
+		// user:pass → Base64
+		hdr := base64.StdEncoding.EncodeToString([]byte(c.Username + ":" + c.Password))
+		req.Header.Set("Authorization", "Basic "+hdr)
+	case "basic_token":
+		// token:password → Base64; пароль по умолчанию пустой
+		pass := c.APITokenPassword
+		hdr := base64.StdEncoding.EncodeToString([]byte(c.APIToken + ":" + pass))
+		req.Header.Set("Authorization", "Basic "+hdr)
+	case "bearer":
+		req.Header.Set("Authorization", "Bearer "+c.BearerToken)
+	case "basic_legacy_b64":
+		if c.Token != "" {
+			req.Header.Set("Authorization", "Basic "+c.Token)
+		}
+	case "none":
+		// ничего
+	default:
+		// неизвестный метод — не устанавливаем заголовок
+	}
 }
 
 func (c *Client) detectVersion() {
@@ -75,9 +276,7 @@ func (c *Client) detectVersion() {
 			// Добавляем те же заголовки, что и в обычных запросах, чтобы на 401 сервер прислал версию
 			req.Header.Set("Accept", "application/json")
 			req.Header.Set("X-Requested-By", "terraform-provider")
-			if c.Token != "" {
-				req.Header.Set("Authorization", "Basic "+c.Token)
-			}
+			c.setAuthHeader(req)
 			resp, err := c.HTTP.Do(req)
 			if err != nil {
 				continue
@@ -124,9 +323,31 @@ func (c *Client) WithContext(ctx context.Context) *Client {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	clone := *c
-	clone.ctx = ctx
-	return &clone
+	// Создаём новый клиент без копирования sync.Once (capOnce)
+	// Кэш capabilities переносим как есть; capOnce оставляем zero-value.
+	return &Client{
+		BaseURL:            c.BaseURL,
+		Token:              c.Token,
+		HTTP:               c.HTTP,
+		APIVersion:         c.APIVersion,
+		MaxRetries:         c.MaxRetries,
+		RetryWait:          c.RetryWait,
+		ctx:                ctx,
+		logger:             c.logger,
+		AuthMethod:         c.AuthMethod,
+		Username:           c.Username,
+		Password:           c.Password,
+		APIToken:           c.APIToken,
+		APITokenPassword:   c.APITokenPassword,
+		BearerToken:        c.BearerToken,
+		InsecureSkipVerify: c.InsecureSkipVerify,
+		CABundlePath:       c.CABundlePath,
+		ClientCertPath:     c.ClientCertPath,
+		ClientKeyPath:      c.ClientKeyPath,
+		OSBaseURL:          c.OSBaseURL,
+		capabilities:       c.capabilities,
+		// capOnce — zero value
+	}
 }
 
 // SetLogger задаёт реализацию структурированного логирования для клиента.
@@ -165,7 +386,7 @@ func (c *Client) doRequest(method, path string, body any) ([]byte, error) {
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Accept", "application/json")
 		req.Header.Set("X-Requested-By", "terraform-provider")
-		req.Header.Set("Authorization", "Basic "+c.Token)
+		c.setAuthHeader(req)
 
 		start := time.Now()
 		if os.Getenv("DEBUG_HTTP") == "1" && bodyBytes != nil {
@@ -266,6 +487,118 @@ func (c *Client) doRequest(method, path string, body any) ([]byte, error) {
 	}
 
 	return nil, fmt.Errorf("request failed after %d attempts: %w", c.MaxRetries+1, lastErr)
+}
+
+// osDoRequest performs an HTTP request against OpenSearch base URL (OSBaseURL).
+// It shares the same HTTP client/transport and retry policy. No Graylog auth headers are applied.
+func (c *Client) osDoRequest(method, path string, body any) ([]byte, error) {
+	if c.OSBaseURL == "" {
+		return nil, fmt.Errorf("opensearch base URL is not configured")
+	}
+	var bodyBytes []byte
+	if body != nil {
+		bodyBytes, _ = json.Marshal(body)
+	}
+	var lastErr error
+	for attempt := 0; attempt <= c.MaxRetries; attempt++ {
+		var buf io.Reader
+		if bodyBytes != nil {
+			buf = bytes.NewBuffer(bodyBytes)
+		}
+		ctx := c.ctx
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		req, err := http.NewRequestWithContext(ctx, method, fmt.Sprintf("%s%s", c.OSBaseURL, path), buf)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json")
+
+		start := time.Now()
+		c.logger.Debug(ctx, "os_http_request", Fields{"method": method, "path": path, "attempt": attempt + 1, "maxRetry": c.MaxRetries + 1})
+		resp, err := c.HTTP.Do(req)
+		if err != nil {
+			lastErr = err
+			if attempt < c.MaxRetries {
+				waitTime := time.Duration(math.Pow(2, float64(attempt))) * c.RetryWait
+				c.logger.Warn(ctx, "os_http_request_error", Fields{"error": err.Error(), "wait": waitTime.String()})
+				time.Sleep(waitTime)
+				continue
+			}
+			return nil, err
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		c.logger.Debug(ctx, "os_http_response", Fields{"status": resp.StatusCode, "duration_ms": time.Since(start).Milliseconds()})
+
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			return b, nil
+		}
+		// Map 404 to ErrNotFound for convenience in higher layers
+		if resp.StatusCode == http.StatusNotFound {
+			return nil, ErrNotFound
+		}
+		// retry on server errors
+		if c.shouldRetry(resp.StatusCode) && attempt < c.MaxRetries {
+			waitTime := time.Duration(math.Pow(2, float64(attempt))) * c.RetryWait
+			c.logger.Warn(ctx, "os_http_retry", Fields{"status": resp.StatusCode, "wait": waitTime.String()})
+			time.Sleep(waitTime)
+			continue
+		}
+		// Return a generic error with body for troubleshooting
+		return nil, fmt.Errorf("opensearch %s %s failed: status=%d body=%s", method, path, resp.StatusCode, string(b))
+	}
+	return nil, lastErr
+}
+
+// OpenSearch Snapshot Repository helpers
+func (c *Client) OSUpsertSnapshotRepository(name, repoType string, settings map[string]any) error {
+	body := map[string]any{
+		"type":     repoType,
+		"settings": settings,
+	}
+	_, err := c.osDoRequest(http.MethodPut, fmt.Sprintf("/_snapshot/%s", name), body)
+	return err
+}
+
+func (c *Client) OSGetSnapshotRepository(name string) (string, map[string]any, error) {
+	b, err := c.osDoRequest(http.MethodGet, fmt.Sprintf("/_snapshot/%s", name), nil)
+	if err != nil {
+		return "", nil, err
+	}
+	// Expected structure: { "<name>": { "type": "fs", "settings": { ... } } }
+	var m map[string]struct {
+		Type     string         `json:"type"`
+		Settings map[string]any `json:"settings"`
+	}
+	if err := json.Unmarshal(b, &m); err == nil {
+		if v, ok := m[name]; ok {
+			if v.Settings == nil {
+				v.Settings = map[string]any{}
+			}
+			return v.Type, v.Settings, nil
+		}
+		// If parsed as map but key not present, try array fallback below
+	}
+	// Some versions may return an array; attempt to parse fallback even if map parsing failed
+	var arr []map[string]any
+	if err := json.Unmarshal(b, &arr); err == nil && len(arr) > 0 {
+		// try to extract type/settings from the first element
+		if t, ok := arr[0]["type"].(string); ok {
+			if s, ok2 := arr[0]["settings"].(map[string]any); ok2 {
+				return t, s, nil
+			}
+			return t, map[string]any{}, nil
+		}
+	}
+	return "", nil, ErrNotFound
+}
+
+func (c *Client) OSDeleteSnapshotRepository(name string) error {
+	_, err := c.osDoRequest(http.MethodDelete, fmt.Sprintf("/_snapshot/%s", name), nil)
+	return err
 }
 
 // GraylogError описывает структурированную ошибку, возвращаемую Graylog API.
@@ -551,6 +884,79 @@ func (c *Client) DeleteStream(id string) error {
 	return err
 }
 
+// ListStreams returns all streams (best-effort across versions).
+func (c *Client) ListStreams() ([]Stream, error) {
+	// Unified path works for 5/6/7 (streams endpoint did not move to /views)
+	path := "/api/streams"
+	resp, err := c.doRequest("GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	// Try common Graylog formats
+	// 1) Wrapper { streams: [...] }
+	var wrap struct {
+		Streams []Stream `json:"streams"`
+		Total   int      `json:"total"`
+		Page    int      `json:"page"`
+		PerPage int      `json:"per_page"`
+	}
+	if err := json.Unmarshal(resp, &wrap); err == nil && wrap.Streams != nil {
+		return wrap.Streams, nil
+	}
+	// 2) Direct array
+	var arr []Stream
+	if err := json.Unmarshal(resp, &arr); err == nil && arr != nil {
+		return arr, nil
+	}
+	// 3) Some versions may return { data: [...] }
+	var alt struct {
+		Data     []Stream `json:"data"`
+		Elements []Stream `json:"elements"`
+		Items    []Stream `json:"items"`
+	}
+	if err := json.Unmarshal(resp, &alt); err == nil {
+		if alt.Data != nil {
+			return alt.Data, nil
+		}
+		if alt.Elements != nil {
+			return alt.Elements, nil
+		}
+		if alt.Items != nil {
+			return alt.Items, nil
+		}
+	}
+	// 4) Generic fallback: try to extract "streams" from arbitrary object
+	var aux map[string]any
+	if err := json.Unmarshal(resp, &aux); err == nil && aux != nil {
+		if v, ok := aux["streams"]; ok {
+			// normalize to slice of objects
+			switch t := v.(type) {
+			case []any:
+				out := make([]Stream, 0, len(t))
+				for _, it := range t {
+					b, _ := json.Marshal(it)
+					var s Stream
+					if err := json.Unmarshal(b, &s); err == nil {
+						out = append(out, s)
+					}
+				}
+				return out, nil
+			case map[string]any:
+				out := make([]Stream, 0, len(t))
+				for _, it := range t {
+					b, _ := json.Marshal(it)
+					var s Stream
+					if err := json.Unmarshal(b, &s); err == nil {
+						out = append(out, s)
+					}
+				}
+				return out, nil
+			}
+		}
+	}
+	return nil, errors.New("unexpected streams response format")
+}
+
 type Input struct {
 	ID            string                 `json:"id,omitempty"`
 	Title         string                 `json:"title"`
@@ -601,6 +1007,57 @@ func (c *Client) DeleteInput(id string) error {
 	path := fmt.Sprintf("/api/system/inputs/%s", id)
 	_, err := c.doRequest("DELETE", path, nil)
 	return err
+}
+
+// ListInputs returns all inputs. Graylog may return either a wrapped object
+// like {"inputs": [...]} or a raw array; support both.
+func (c *Client) ListInputs() ([]Input, error) {
+	path := "/api/system/inputs"
+	resp, err := c.doRequest("GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	// Try wrapped form first
+	var wrap struct {
+		Inputs []Input `json:"inputs"`
+	}
+	if err := json.Unmarshal(resp, &wrap); err == nil && wrap.Inputs != nil {
+		return wrap.Inputs, nil
+	}
+	// Fallback to array
+	var arr []Input
+	if err := json.Unmarshal(resp, &arr); err == nil && arr != nil {
+		return arr, nil
+	}
+	// Be lenient with map[string]any of inputs keyed by id
+	var anyMap map[string]any
+	if err := json.Unmarshal(resp, &anyMap); err == nil {
+		if v, ok := anyMap["inputs"]; ok {
+			switch t := v.(type) {
+			case []any:
+				out := make([]Input, 0, len(t))
+				for _, it := range t {
+					b, _ := json.Marshal(it)
+					var s Input
+					if err := json.Unmarshal(b, &s); err == nil {
+						out = append(out, s)
+					}
+				}
+				return out, nil
+			case map[string]any:
+				out := make([]Input, 0, len(t))
+				for _, it := range t {
+					b, _ := json.Marshal(it)
+					var s Input
+					if err := json.Unmarshal(b, &s); err == nil {
+						out = append(out, s)
+					}
+				}
+				return out, nil
+			}
+		}
+	}
+	return nil, errors.New("unexpected inputs response format")
 }
 
 // ===== Stream Rules (Streams) =====
@@ -751,17 +1208,29 @@ func (c *Client) DeleteOutput(id string) error {
 }
 
 func (c *Client) AttachOutputToStream(streamID, outputID string) error {
-	// Preferred API: POST /api/streams/{streamID}/outputs with body {output_id}
+	// Try multiple known variants across versions/images, from most specific to generic
+	// 1) Legacy style: POST /api/streams/{id}/outputs/{outputId}
+	legacy := fmt.Sprintf("/api/streams/%s/outputs/%s", streamID, outputID)
+	if _, err := c.doRequest("POST", legacy, nil); err == nil {
+		return nil
+	}
+	// 1b) Some images may expect PUT for legacy-style attach
+	if _, err := c.doRequest("PUT", legacy, nil); err == nil {
+		return nil
+	}
+	// 2) Newer style: POST /api/streams/{id}/outputs with JSON body {"output_id":"..."}
 	path := fmt.Sprintf("/api/streams/%s/outputs", streamID)
 	body := map[string]string{"output_id": outputID}
 	if _, err := c.doRequest("POST", path, body); err == nil {
 		return nil
-	} else {
-		// Fallback to legacy endpoint: POST /streams/{id}/outputs/{outputId}
-		legacy := fmt.Sprintf("/api/streams/%s/outputs/%s", streamID, outputID)
-		_, err2 := c.doRequest("POST", legacy, nil)
-		return err2
 	}
+	// 2b) Try PUT with body as a last resort
+	if _, err := c.doRequest("PUT", path, body); err == nil {
+		return nil
+	}
+	// Return last error (from PUT with body) for context
+	_, err := c.doRequest("PUT", legacy, nil)
+	return err
 }
 
 func (c *Client) DetachOutputFromStream(streamID, outputID string) error {
@@ -769,6 +1238,74 @@ func (c *Client) DetachOutputFromStream(streamID, outputID string) error {
 	path := fmt.Sprintf("/api/streams/%s/outputs/%s", streamID, outputID)
 	_, err := c.doRequest("DELETE", path, nil)
 	return err
+}
+
+// ListStreamOutputs returns outputs attached to the given stream.
+func (c *Client) ListStreamOutputs(streamID string) ([]Output, error) {
+	path := fmt.Sprintf("/api/streams/%s/outputs", streamID)
+	resp, err := c.doRequest("GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	// Common formats across versions/images
+	// 1) { outputs: [...] }
+	var wrap struct {
+		Outputs []Output `json:"outputs"`
+	}
+	if err := json.Unmarshal(resp, &wrap); err == nil && wrap.Outputs != nil {
+		return wrap.Outputs, nil
+	}
+	// 2) direct array of outputs
+	var arr []Output
+	if err := json.Unmarshal(resp, &arr); err == nil && arr != nil {
+		return arr, nil
+	}
+	// 3) { data: [...] } or { elements: [...] } or { items: [...] }
+	var alt struct {
+		Data     []Output `json:"data"`
+		Elements []Output `json:"elements"`
+		Items    []Output `json:"items"`
+	}
+	if err := json.Unmarshal(resp, &alt); err == nil {
+		if alt.Data != nil {
+			return alt.Data, nil
+		}
+		if alt.Elements != nil {
+			return alt.Elements, nil
+		}
+		if alt.Items != nil {
+			return alt.Items, nil
+		}
+	}
+	// 4) Fallback: try to extract "outputs" key generically
+	var aux map[string]any
+	if err := json.Unmarshal(resp, &aux); err == nil && aux != nil {
+		if v, ok := aux["outputs"]; ok {
+			switch t := v.(type) {
+			case []any:
+				out := make([]Output, 0, len(t))
+				for _, it := range t {
+					b, _ := json.Marshal(it)
+					var o Output
+					if err := json.Unmarshal(b, &o); err == nil {
+						out = append(out, o)
+					}
+				}
+				return out, nil
+			case map[string]any:
+				out := make([]Output, 0, len(t))
+				for _, it := range t {
+					b, _ := json.Marshal(it)
+					var o Output
+					if err := json.Unmarshal(b, &o); err == nil {
+						out = append(out, o)
+					}
+				}
+				return out, nil
+			}
+		}
+	}
+	return nil, errors.New("unexpected stream outputs response format")
 }
 
 // ===== Roles =====
@@ -810,7 +1347,20 @@ func (c *Client) GetRole(name string) (*Role, error) {
 func (c *Client) UpdateRole(name string, r *Role) (*Role, error) {
 	// Унифицированный путь для всех версий
 	path := fmt.Sprintf("/api/roles/%s", name)
-	resp, err := c.doRequest("PUT", path, r)
+	// В некоторых версиях Graylog обновление роли чувствительно к набору полей —
+	// поле `name` и любые иммутабельные значения не должны присутствовать в теле PUT.
+	// Формируем минимальный патч только с изменяемыми полями.
+	payload := struct {
+		Description string   `json:"description,omitempty"`
+		Permissions []string `json:"permissions,omitempty"`
+		ReadOnly    bool     `json:"read_only,omitempty"`
+	}{
+		Description: r.Description,
+		Permissions: r.Permissions,
+		ReadOnly:    r.ReadOnly,
+	}
+
+	resp, err := c.doRequest("PUT", path, &payload)
 	if err != nil {
 		return nil, err
 	}
@@ -1925,6 +2475,105 @@ func (c *Client) ListEventNotifications() ([]EventNotification, error) {
 	return arr, nil
 }
 
+// ---- Views (read-only listing used for governance/data sources) ----
+
+type View struct {
+	ID          string `json:"id,omitempty"`
+	Title       string `json:"title"`
+	Description string `json:"description,omitempty"`
+}
+
+// ListViews attempts to list Views across different Graylog versions/images.
+// Some images may not expose Views APIs; in that case, the function returns an empty slice and no error
+// after probing known endpoints, so read-only data sources can degrade gracefully.
+func (c *Client) ListViews() ([]View, error) {
+	// Try a set of known endpoints; keep it lightweight
+	paths := []string{
+		"/api/views",
+		"/views",
+	}
+	var lastErr error
+	for _, p := range paths {
+		resp, err := c.doRequest("GET", p, nil)
+		if err != nil {
+			// If endpoint is missing (404) or method not allowed (405), try next path
+			var ge *GraylogError
+			if errors.As(err, &ge) && (ge.Status == 404 || ge.Status == 405) {
+				lastErr = err
+				continue
+			}
+			// Other errors are considered fatal for this path; try next but remember last
+			lastErr = err
+			continue
+		}
+		// Try common wrappers first
+		var wrap struct {
+			Views    []View `json:"views"`
+			Data     []View `json:"data"`
+			Elements []View `json:"elements"`
+			Items    []View `json:"items"`
+		}
+		if err := json.Unmarshal(resp, &wrap); err == nil {
+			switch {
+			case wrap.Views != nil:
+				return wrap.Views, nil
+			case wrap.Data != nil:
+				return wrap.Data, nil
+			case wrap.Elements != nil:
+				return wrap.Elements, nil
+			case wrap.Items != nil:
+				return wrap.Items, nil
+			}
+		}
+		// Direct array
+		var arr []View
+		if err := json.Unmarshal(resp, &arr); err == nil && arr != nil {
+			return arr, nil
+		}
+		// Generic object with a "views" field of various shapes
+		var aux map[string]any
+		if err := json.Unmarshal(resp, &aux); err == nil && aux != nil {
+			if v, ok := aux["views"]; ok {
+				switch t := v.(type) {
+				case []any:
+					out := make([]View, 0, len(t))
+					for _, it := range t {
+						b, _ := json.Marshal(it)
+						var vv View
+						if json.Unmarshal(b, &vv) == nil {
+							out = append(out, vv)
+						}
+					}
+					return out, nil
+				case map[string]any:
+					out := make([]View, 0, len(t))
+					for _, it := range t {
+						b, _ := json.Marshal(it)
+						var vv View
+						if json.Unmarshal(b, &vv) == nil {
+							out = append(out, vv)
+						}
+					}
+					return out, nil
+				}
+			}
+		}
+		// If we reached here, response shape is unexpected — try next path
+		lastErr = errors.New("unexpected views response format")
+	}
+	// If all paths failed with 404/405 (feature not present), return empty list gracefully
+	if lastErr != nil {
+		var ge *GraylogError
+		if errors.As(lastErr, &ge) && (ge.Status == 404 || ge.Status == 405) {
+			return []View{}, nil
+		}
+	}
+	if lastErr == nil {
+		return []View{}, nil
+	}
+	return nil, lastErr
+}
+
 // ---- Users ----
 
 type User struct {
@@ -2059,4 +2708,62 @@ func (c *Client) DeleteUser(username string) error {
 	path := fmt.Sprintf("/api/users/%s", username)
 	_, err := c.doRequest("DELETE", path, nil)
 	return err
+}
+
+// ListUsers returns all users. Graylog may return either a wrapped object
+// like {"users": [...]} or a raw array; support both. Newer versions may
+// include ObjectId in field `id`.
+func (c *Client) ListUsers() ([]User, error) {
+	path := "/api/users"
+	resp, err := c.doRequest("GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	// Try wrapped
+	var wrap struct {
+		Users []User `json:"users"`
+	}
+	if err := json.Unmarshal(resp, &wrap); err == nil && wrap.Users != nil {
+		return wrap.Users, nil
+	}
+	// Raw array
+	var arr []User
+	if err := json.Unmarshal(resp, &arr); err == nil && arr != nil {
+		// Ensure password field is blanked just in case
+		for i := range arr {
+			arr[i].Password = ""
+		}
+		return arr, nil
+	}
+	// Fallback for map formats
+	var anyMap map[string]any
+	if err := json.Unmarshal(resp, &anyMap); err == nil {
+		if v, ok := anyMap["users"]; ok {
+			switch t := v.(type) {
+			case []any:
+				out := make([]User, 0, len(t))
+				for _, it := range t {
+					b, _ := json.Marshal(it)
+					var u User
+					if err := json.Unmarshal(b, &u); err == nil {
+						u.Password = ""
+						out = append(out, u)
+					}
+				}
+				return out, nil
+			case map[string]any:
+				out := make([]User, 0, len(t))
+				for _, it := range t {
+					b, _ := json.Marshal(it)
+					var u User
+					if err := json.Unmarshal(b, &u); err == nil {
+						u.Password = ""
+						out = append(out, u)
+					}
+				}
+				return out, nil
+			}
+		}
+	}
+	return nil, errors.New("unexpected users response format")
 }

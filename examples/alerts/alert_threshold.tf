@@ -13,20 +13,28 @@ resource "graylog_alert" "threshold" {
   priority    = 2
   alert       = true
 
-  # Pass-through config; adjust to your Graylog version/schema
-  config = {
-    type  = "threshold-v1"
-    query = "level:ERROR"
-    threshold = {
+  threshold {
+    query            = "level:ERROR"
+    search_within_ms = 5 * 60 * 1000
+    execute_every_ms = 1 * 60 * 1000
+    group_by         = ["source"]
+
+    series {
+      id       = "count"
+      function = "count()"
+    }
+
+    threshold {
       type  = "more"
       value = 100
     }
-    search_within_ms = 5 * 60 * 1000
-    execute_every_ms = 1 * 60 * 1000
-    group_by = ["source"]
-    series = [{ id = "count", function = "count()" }]
-    execution = {
-      interval = { type = "interval", value = 1, unit = "MINUTES" }
+
+    execution {
+      interval {
+        type  = "interval"
+        value = 1
+        unit  = "MINUTES"
+      }
     }
   }
 

@@ -3,6 +3,9 @@ package provider
 import (
 	"context"
 	"errors"
+	"fmt"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/Ultrafenrir/terraform-provider-graylog/internal/client"
@@ -232,15 +235,48 @@ func (r *streamResource) Update(ctx context.Context, req resource.UpdateRequest,
 		resp.Diagnostics.AddError("Error updating stream", err.Error())
 		return
 	}
-	// Resync rules: fetch existing, delete all, recreate from plan
-	if existing, err := r.client.WithContext(ctx).ListStreamRules(data.ID.ValueString()); err == nil {
-		for _, ex := range existing {
+	// Diff-aware sync of rules: delete extra, create missing; keep matching ones
+	// Build maps by stable key
+	existing, err := r.client.WithContext(ctx).ListStreamRules(data.ID.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError("Error listing stream rules", err.Error())
+		return
+	}
+	type ruleKey string
+	makeKey := func(f string, t int, v string, inv bool, desc string) ruleKey {
+		return ruleKey(fmt.Sprintf("%s|%d|%s|%t|%s", f, t, v, inv, desc))
+	}
+	exByKey := make(map[ruleKey]string)
+	for _, ex := range existing {
+		k := makeKey(ex.Field, ex.Type, ex.Value, ex.Inverted, ex.Description)
+		exByKey[k] = ex.ID
+	}
+	desiredKeys := make(map[ruleKey]struct{})
+	for _, rr := range data.Rules {
+		k := makeKey(rr.Field.ValueString(), int(rr.Type.ValueInt64()), rr.Value.ValueString(), rr.Inverted.ValueBool(), rr.Description.ValueString())
+		desiredKeys[k] = struct{}{}
+	}
+	// Delete rules that are not desired
+	for _, ex := range existing {
+		k := makeKey(ex.Field, ex.Type, ex.Value, ex.Inverted, ex.Description)
+		if _, ok := desiredKeys[k]; !ok {
 			if ex.ID != "" {
 				_ = r.client.WithContext(ctx).DeleteStreamRule(data.ID.ValueString(), ex.ID)
 			}
 		}
 	}
+	// Create rules that are missing
 	for i, rr := range data.Rules {
+		k := makeKey(rr.Field.ValueString(), int(rr.Type.ValueInt64()), rr.Value.ValueString(), rr.Inverted.ValueBool(), rr.Description.ValueString())
+		if _, ok := exByKey[k]; ok {
+			// Already present — if ID known in state, keep it; otherwise fill from map
+			if data.Rules[i].ID.IsNull() || data.Rules[i].ID.IsUnknown() || data.Rules[i].ID.ValueString() == "" {
+				if id := exByKey[k]; id != "" {
+					data.Rules[i].ID = types.StringValue(id)
+				}
+			}
+			continue
+		}
 		rule := &client.StreamRule{
 			Field:       rr.Field.ValueString(),
 			Type:        int(rr.Type.ValueInt64()),
@@ -304,5 +340,48 @@ func (r *streamResource) Delete(ctx context.Context, req resource.DeleteRequest,
 }
 
 func (r *streamResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
+	raw := req.ID
+	if raw == "" {
+		resp.Diagnostics.AddError("Empty import ID", "Provide a stream ID (UUID) or a title to import by title.")
+		return
+	}
+	// If value looks like UUID or Mongo ObjectID (24 hex), pass through as id
+	isUUID := regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`).MatchString
+	isHex24 := regexp.MustCompile(`(?i)^[0-9a-f]{24}$`).MatchString
+	val := strings.TrimSpace(raw)
+	if isUUID(val) || isHex24(val) {
+		resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), val)...) //nolint:errcheck
+		return
+	}
+	// Support explicit prefix title:My Stream Title
+	const prefix = "title:"
+	if strings.HasPrefix(strings.ToLower(val), prefix) {
+		val = strings.TrimSpace(val[len(prefix):])
+	}
+	// Resolve by title via API
+	if r.client == nil {
+		resp.Diagnostics.AddError("Provider not configured", "Client is nil; cannot resolve stream by title during import.")
+		return
+	}
+	list, err := r.client.WithContext(ctx).ListStreams()
+	if err != nil {
+		resp.Diagnostics.AddError("Unable to list streams for import", err.Error())
+		return
+	}
+	matches := make([]client.Stream, 0)
+	for _, s := range list {
+		if s.Title == val {
+			matches = append(matches, s)
+		}
+	}
+	if len(matches) == 1 {
+		resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), matches[0].ID)...) //nolint:errcheck
+		return
+	}
+	if len(matches) == 0 {
+		resp.Diagnostics.AddError("Stream not found by title", "No stream found with exact title: "+val+". Provide a UUID or an exact title.")
+		return
+	}
+	// Ambiguous
+	resp.Diagnostics.AddError("Multiple streams match title", "Found "+fmt.Sprintf("%d", len(matches))+" streams with title '"+val+"'. Please import by UUID.")
 }

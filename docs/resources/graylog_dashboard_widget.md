@@ -11,6 +11,8 @@ Manages a widget on a classic Graylog dashboard. Part of the Graylog Terraform P
 
 Note: This resource targets classic dashboards (not Views). If you need Views widgets, consider opening an issue for `views` support.
 
+> Capability note: Creation/updates require classic dashboards CRUD support. On images/versions without legacy dashboards, operations will fail fast with a clear error. See the capability table in `docs/index.md`.
+
 ## Example Usage
 
 ```hcl

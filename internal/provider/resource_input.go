@@ -119,6 +119,10 @@ func (r *inputResource) Create(ctx context.Context, req resource.CreateRequest, 
 			resp.Diagnostics.AddAttributeError(path.Root("configuration"), "Invalid configuration JSON", err.Error())
 			return
 		}
+		// Canonicalize configuration JSON to avoid noisy diffs
+		if canon, err := CanonicalizeJSONValue(config); err == nil {
+			data.Configuration = types.StringValue(canon)
+		}
 	}
 
 	in := &client.Input{
@@ -140,6 +144,10 @@ func (r *inputResource) Create(ctx context.Context, req resource.CreateRequest, 
 		if err := json.Unmarshal([]byte(data.Extractors.ValueString()), &extractorObjs); err != nil {
 			resp.Diagnostics.AddAttributeError(path.Root("extractors"), "Invalid extractors JSON", err.Error())
 			return
+		}
+		// Canonicalize extractors JSON for state
+		if canon, err := CanonicalizeJSONValue(toAnySlice(extractorObjs)); err == nil {
+			data.Extractors = types.StringValue(canon)
 		}
 		for _, ex := range extractorObjs {
 			// Support either top-level extractor map or nested under "data"
@@ -177,9 +185,11 @@ func (r *inputResource) Read(ctx context.Context, req resource.ReadRequest, resp
 	data.Global = types.BoolValue(in.Global)
 	data.Node = types.StringValue(in.Node)
 
-	// Set configuration back as JSON string
+	// Set configuration back as canonical JSON string
 	if in.Configuration != nil {
-		if b, err := json.Marshal(in.Configuration); err == nil {
+		if canon, err := CanonicalizeJSONValue(in.Configuration); err == nil {
+			data.Configuration = types.StringValue(canon)
+		} else if b, err2 := json.Marshal(in.Configuration); err2 == nil {
 			data.Configuration = types.StringValue(string(b))
 		}
 	}
@@ -188,8 +198,8 @@ func (r *inputResource) Read(ctx context.Context, req resource.ReadRequest, resp
 	if exList, err := r.client.WithContext(ctx).ListInputExtractors(data.ID.ValueString()); err == nil {
 		if len(exList) == 0 {
 			data.Extractors = types.StringNull()
-		} else if b, err2 := json.Marshal(exList); err2 == nil {
-			data.Extractors = types.StringValue(string(b))
+		} else if canon, err2 := CanonicalizeJSONValue(toAnySlice(exList)); err2 == nil {
+			data.Extractors = types.StringValue(canon)
 		}
 	} else {
 		resp.Diagnostics.AddWarning("Unable to read input extractors", err.Error())
@@ -227,6 +237,9 @@ func (r *inputResource) Update(ctx context.Context, req resource.UpdateRequest, 
 			resp.Diagnostics.AddAttributeError(path.Root("configuration"), "Invalid configuration JSON", err.Error())
 			return
 		}
+		if canon, err := CanonicalizeJSONValue(config); err == nil {
+			data.Configuration = types.StringValue(canon)
+		}
 	}
 
 	in := &client.Input{
@@ -258,6 +271,9 @@ func (r *inputResource) Update(ctx context.Context, req resource.UpdateRequest, 
 			resp.Diagnostics.AddAttributeError(path.Root("extractors"), "Invalid extractors JSON", err.Error())
 			return
 		}
+		if canon, err := CanonicalizeJSONValue(toAnySlice(extractorObjs)); err == nil {
+			data.Extractors = types.StringValue(canon)
+		}
 		for _, ex := range extractorObjs {
 			payload, ok := ex["data"].(map[string]interface{})
 			if !ok || payload == nil {
@@ -270,6 +286,15 @@ func (r *inputResource) Update(ctx context.Context, req resource.UpdateRequest, 
 		}
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+}
+
+// toAnySlice converts []map[string]interface{} to []interface{} for canonical serialization
+func toAnySlice(in []map[string]interface{}) []interface{} {
+	out := make([]interface{}, 0, len(in))
+	for _, m := range in {
+		out = append(out, m)
+	}
+	return out
 }
 
 func (r *inputResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {

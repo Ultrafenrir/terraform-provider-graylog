@@ -8,6 +8,8 @@ description: |-
 
 Manages a classic Graylog dashboard with basic fields. Part of the Graylog Terraform Provider for Graylog automation.
 
+> Note: This resource is gated by capability detection. On images/versions that do not expose classic dashboards CRUD, create/update will fail early with a clear error. See the capability table in `docs/index.md`.
+
 ## Example Usage
 
 ```hcl
@@ -29,6 +31,12 @@ resource "graylog_dashboard" "ops" {
 
 ## Import
 
+You can import by ID (UUID/24-hex) or by exact title. For title-based import, use the explicit `title:` prefix. If multiple dashboards share the same title, import by ID.
+
 ```bash
-terraform import graylog_dashboard.d <dashboard_id>
+# By ID
+terraform import graylog_dashboard.d 5f3c2a0b9e0f1a2b3c4d5e6f
+
+# By title (exact match)
+terraform import graylog_dashboard.d "title:Ops overview"
 ```
