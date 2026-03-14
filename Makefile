@@ -120,6 +120,9 @@ graylog-up: graylog-clean
 	  mongo="$${MONGO_TAG:-7.0}"; \
 	  os="$${OPENSEARCH_TAG:-2.17.1}"; \
 	  echo Using MongoDB $$mongo and OpenSearch $$os for Graylog $(GRAYLOG_VERSION); \
+	  # Ensure OpenSearch snapshots directory exists and is writable by container user \
+	  mkdir -p ./compose/os_snapshots; \
+	  chmod -R 0777 ./compose/os_snapshots || true; \
 	  MONGO_TAG="$$mongo" OPENSEARCH_TAG="$$os" GRAYLOG_VERSION="$(GRAYLOG_VERSION)" docker compose up -d --remove-orphans'
 
 # Run acceptance tests once for the current GRAYLOG_VERSION
@@ -154,6 +157,9 @@ graylog-up:
 	  mongo="$${MONGO_TAG:-7.0}"; \
 	  os="$${OPENSEARCH_TAG:-2.17.1}"; \
 	  echo Using MongoDB $$mongo and OpenSearch $$os for Graylog $(GRAYLOG_VERSION); \
+	  # Ensure OpenSearch snapshots directory exists and is writable by container user \
+	  mkdir -p ./compose/os_snapshots; \
+	  chmod -R 0777 ./compose/os_snapshots || true; \
 	  MONGO_TAG="$$mongo" OPENSEARCH_TAG="$$os" GRAYLOG_VERSION="$(GRAYLOG_VERSION)" docker compose up -d --remove-orphans'
 
 # Recreate ONLY the Graylog service (keep Mongo/OpenSearch running)
