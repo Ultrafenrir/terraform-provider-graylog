@@ -1,8 +1,22 @@
-# Graylog Terraform Provider — Terraform Graylog automation
+# Graylog Terraform Provider
 
-Production‑ready provider to automate Graylog operations with Terraform. Manage streams (and rules), inputs (and extractors), index sets, pipelines, dashboards, dashboard permissions (role‑based), alerts (Event Definitions) and more — as code. Works with Graylog v5, v6 and v7. For v6/v7 the `/api` prefix is handled automatically where required.
+**Production-ready Terraform provider for Graylog OSS** — automate log management infrastructure with unique features not available in other providers.
 
-Search hints (SEO): Terraform Graylog provider, graylog terraform, terraform graylog, Graylog operation automation, graylog automation, terrafrom graylog provider, graylog teraform, terrafrom graylog.
+[![Terraform Registry](https://img.shields.io/badge/terraform-registry-blue)](https://registry.terraform.io/providers/Ultrafenrir/graylog)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/Ultrafenrir/terraform-provider-graylog)](https://github.com/Ultrafenrir/terraform-provider-graylog)
+[![Tests](https://github.com/Ultrafenrir/terraform-provider-graylog/workflows/CI/badge.svg)](https://github.com/Ultrafenrir/terraform-provider-graylog/actions)
+
+## Why This Provider?
+
+**Unique features for Graylog OSS** (not available in other providers):
+
+✅ **LDAP User Sync** — Automate user provisioning from LDAP/AD groups
+✅ **Stream Backups** — Configure OpenSearch snapshot repositories for data backup
+✅ **Role-Based Permissions** — Granular stream/dashboard access control (RBAC)
+✅ **Multi-Version Support** — Tested against Graylog 5.x, 6.x, and 7.x
+✅ **State Migration** — Upgrade Graylog versions (5→6→7) without recreating resources
+
+**Keywords:** graylog terraform, terraform graylog provider, graylog stream backups, graylog ldap integration, graylog ldap sync, graylog opensearch snapshots, graylog backups, sync ldap groups to graylog.
 
 ## Installation (Terraform Registry)
 
@@ -53,11 +67,180 @@ provider "graylog" {
 
 See the `examples/` directory for standalone, copy‑pasteable snippets for each resource type.
 
-## Why this provider (benefits)
-- Terraform Graylog automation: declarative changes, code review, and drift detection for Graylog.
-- Safe upgrades between Graylog 5 → 6 → 7 with a single Terraform state (covered by migration tests).
-- Flexible resources: inputs with free‑form configuration and extractors; streams with rules; index sets and pipelines.
-- Robust error handling with structured JSON parsing for clearer diagnostics from Graylog API.
+## Quick Start
+
+```hcl
+terraform {
+  required_providers {
+    graylog = {
+      source  = "Ultrafenrir/graylog"
+      version = "~> 0.3"
+    }
+  }
+}
+
+provider "graylog" {
+  url      = "https://graylog.example.com/api"
+  username = "admin"
+  password = var.graylog_password
+}
+
+# Create a stream with routing rules
+resource "graylog_stream" "app_logs" {
+  title       = "Application Logs"
+  description = "Production app logs"
+
+  rule {
+    field = "application"
+    type  = 1  # exact match
+    value = "myapp"
+  }
+}
+
+# Grant read access to DevOps role
+resource "graylog_stream_permission" "devops_access" {
+  role_name = "DevOps"
+  stream_id = graylog_stream.app_logs.id
+  actions   = ["read", "edit"]
+}
+```
+
+## Unique Features (Graylog OSS)
+
+### 1. LDAP User Sync
+
+**Problem:** Graylog OSS doesn't include automated LDAP user synchronization.
+
+**Solution:** Use `graylog_ldap_group_members` data source to automate user provisioning:
+
+```hcl
+# Read LDAP group members
+data "graylog_ldap_group_members" "devops" {
+  url           = "ldap://ldap.example.com:389"
+  bind_dn       = "cn=readonly,dc=example,dc=com"
+  bind_password = var.ldap_password
+  base_dn       = "dc=example,dc=com"
+  group_name    = "devops"
+}
+
+# Auto-create Graylog users
+resource "graylog_user" "ldap_users" {
+  for_each = { for m in data.graylog_ldap_group_members.devops.members : m.username => m }
+
+  username     = each.key
+  email        = each.value.email
+  set_password = false  # Authenticate via LDAP
+  roles        = ["DevOpsRole"]
+}
+```
+
+**📚 [Complete LDAP Sync Guide](docs/guides/ldap-user-sync.md)** | **[Production Example](examples/production/ldap-sync-rbac.tf)**
+
+---
+
+### 2. Stream Data Backups
+
+**Problem:** Graylog OSS doesn't provide built-in stream data backup functionality.
+
+**Solution:** Configure OpenSearch snapshot repositories for automated backups:
+
+```hcl
+provider "graylog" {
+  url            = "https://graylog.example.com/api"
+  opensearch_url = "https://opensearch.example.com:9200"
+}
+
+# S3 snapshot repository
+resource "graylog_opensearch_snapshot_repository" "backups" {
+  name = "production-backups"
+  type = "s3"
+
+  s3_settings {
+    bucket    = "graylog-snapshots"
+    region    = "us-east-1"
+    base_path = "daily"
+    compress  = true
+  }
+}
+```
+
+Then trigger snapshots via OpenSearch API or automation (cron/Lambda).
+
+**📚 [Complete Backup Guide](docs/guides/stream-backups.md)** | **[Production Example](examples/production/backup-and-restore.tf)**
+
+---
+
+### 3. Role-Based Stream Permissions
+
+Grant granular access control for streams to different teams:
+
+```hcl
+# DevOps team: read + edit
+resource "graylog_stream_permission" "devops_app_logs" {
+  role_name = "DevOpsRole"
+  stream_id = graylog_stream.app_logs.id
+  actions   = ["read", "edit"]
+}
+
+# Security team: read-only
+resource "graylog_stream_permission" "security_app_logs" {
+  role_name = "SecurityRole"
+  stream_id = graylog_stream.security_events.id
+  actions   = ["read", "edit", "share"]
+}
+```
+
+Combine with LDAP sync for complete automated RBAC.
+
+## Supported Resources & Data Sources
+
+### Resources (15)
+**Core Infrastructure:**
+- `graylog_stream` — Streams with routing rules
+- `graylog_input` — Inputs (Kafka, Syslog, GELF, Beats, etc.) with extractors
+- `graylog_output` — Outputs (GELF, HTTP, etc.)
+- `graylog_pipeline` — Processing pipelines
+- `graylog_index_set` — Index set configuration
+- `graylog_dashboard` — Classic dashboards
+- `graylog_dashboard_widget` — Dashboard widgets
+
+**Security & Governance:**
+- `graylog_user` — User management
+- `graylog_role` — Role management
+- `graylog_ldap_setting` — LDAP configuration
+- `graylog_stream_permission` — Stream RBAC ⭐
+- `graylog_dashboard_permission` — Dashboard RBAC
+- `graylog_stream_output_binding` — Stream-to-output bindings
+
+**Alerts:**
+- `graylog_alert` — Event Definitions (typed + config modes)
+- `graylog_event_notification` — Notifications (email, HTTP, etc.)
+
+**Backups:**
+- `graylog_opensearch_snapshot_repository` — OpenSearch snapshot repos (FS/S3) ⭐
+
+### Data Sources (13)
+**Lookups:**
+- `graylog_stream`, `graylog_input`, `graylog_dashboard`, `graylog_user`, `graylog_index_set`, `graylog_event_notification`
+
+**Lists (pagination support):**
+- `graylog_streams`, `graylog_dashboards`, `graylog_inputs`, `graylog_users`, `graylog_index_sets`, `graylog_event_notifications`, `graylog_views`
+
+**LDAP Integration:**
+- `graylog_ldap_group_members` — Read LDAP group members ⭐
+
+---
+
+##  Production Features
+
+- ✅ **Multi-version support:** Tested on Graylog 5.x, 6.x, 7.x
+- ✅ **State migration tests:** Upgrade 5→6→7 without recreation
+- ✅ **Import by title/username:** Human-friendly imports
+- ✅ **Canonical JSON:** No spurious diffs for JSON fields
+- ✅ **Flexible auth:** Basic, token, bearer, legacy modes
+- ✅ **TLS/mTLS support:** CA bundles, client certs
+- ✅ **Retry logic:** Exponential backoff for API failures
+- ✅ **Structured logging:** tflog integration (no secret leakage)
 
 ### Provider configuration (auth, TLS/HTTP, OpenSearch, ENV)
 
@@ -86,22 +269,34 @@ The provider is tested and supported against the following Graylog major version
 
 CI runs integration, acceptance, and migration tests against all listed versions via docker‑compose to ensure compatibility.
 
-## Examples
+## Documentation
 
-Examples are organized by resource type:
-- examples/basic.tf — single file covering provider config and all main resources.
-- examples/inputs/*.tf — inputs like Kafka, Syslog UDP, GELF TCP, Beats, Raw TCP/UDP, HTTP JSON. Each uses a flexible `configuration` map and may include `extractors`.
-- examples/streams/*.tf — streams with multiple rules (integer `type` enum); includes `inverted` examples.
-- examples/pipelines/*.tf — pipelines; `source` contains a full Graylog pipeline definition.
-- examples/dashboards/*.tf — classic dashboards (title/description).
-- examples/dashboards/permission.tf — role‑based permissions for classic dashboards via `graylog_dashboard_permission`.
-- examples/alerts/*.tf — alert/Event Definition examples with pass‑through `config`.
- - examples/opensearch/snapshot_repo_fs.tf — OpenSearch filesystem snapshot repository.
- - examples/opensearch/snapshot_repo_s3.tf — OpenSearch S3‑compatible snapshot repository (MinIO in docker‑compose).
+### 📖 [Provider Documentation (Terraform Registry)](https://registry.terraform.io/providers/Ultrafenrir/graylog/latest/docs)
 
-Notes:
-- Stream rule `type` is an integer Graylog enum. Values vary by Graylog version (e.g., equals=1, regex=3). Consult your Graylog docs.
-- Extractors are passed through as free‑form objects. Prefer a consistent format: either top‑level fields or a single `data` object with extractor payload.
+### Guides
+
+- **[LDAP User Sync Guide](docs/guides/ldap-user-sync.md)** — Complete workflow for syncing LDAP users with RBAC
+- **[Stream Backups Guide](docs/guides/stream-backups.md)** — Configure OpenSearch snapshots for data backup
+- **[Troubleshooting Guide](docs/guides/troubleshooting.md)** — Common issues and debugging
+
+### Examples
+
+**Basic Examples:** `examples/`
+- `basic.tf` — Provider config and core resources
+- `inputs/*.tf` — Kafka, Syslog, GELF, Beats, HTTP JSON
+- `streams/*.tf` — Streams with routing rules
+- `pipelines/*.tf` — Processing pipelines
+- `dashboards/*.tf` — Dashboards and permissions
+- `alerts/*.tf` — Event Definitions and notifications
+- `opensearch/*.tf` — Snapshot repositories (FS/S3)
+- `ldap/*.tf` — LDAP settings
+- `users/*.tf`, `roles/*.tf`, `outputs/*.tf`
+
+**Production Examples:** `examples/production/`
+- **[ldap-sync-rbac.tf](examples/production/ldap-sync-rbac.tf)** — Multi-team LDAP sync with stream permissions
+- **[backup-and-restore.tf](examples/production/backup-and-restore.tf)** — S3 backups with DR replication
+
+**Note:** Stream rule `type` is an integer enum (1=exact, 3=regex, 5=contains). Values may vary by Graylog version — consult your Graylog documentation.
 
 ### Canonical JSON and Import UX
 

@@ -1,6 +1,18 @@
+---
+page_title: "graylog_opensearch_snapshot_repository Resource - Graylog Terraform Provider"
+subcategory: "OpenSearch & Backups"
+description: |-
+  Manages an OpenSearch Snapshot Repository (fs/s3 or any plugin type via generic settings). Use it to enable Graylog stream data backups via OpenSearch snapshots.
+---
+
 # graylog_opensearch_snapshot_repository
 
 Manages an OpenSearch Snapshot Repository. Supports any repository `type` via a generic `settings` map. Additionally provides typed convenience blocks for `fs` and `s3` repositories.
+
+Note for Graylog OSS users (Graylog stream backups / Graylog backups):
+
+- Graylog OSS does not ship a built‑in "backup streams" feature. To back up your Streams’ data, use OpenSearch snapshots to back up the indices that Streams write to. This resource configures the snapshot repository (filesystem or S3) so you can trigger and automate snapshots on your cluster.
+  - Keywords: graylog stream backups, graylog backups, graylog OpenSearch snapshots.
 
 Note: This resource communicates directly with OpenSearch (not Graylog). Configure the provider with `opensearch_url` or `OPENSEARCH_URL` environment variable.
 
@@ -68,6 +80,56 @@ resource "graylog_opensearch_snapshot_repository" "custom" {
   }
 }
 ```
+
+Back up Streams data (what is actually backed up):
+
+Streams in Graylog route messages into index sets. OpenSearch snapshots back up indices — therefore, by configuring a snapshot repository you enable backups of the data written by your Streams (their index sets). Creating the repository does not automatically take snapshots; you need to trigger snapshot creation (manually or via automation).
+
+Example: trigger a snapshot for the indices of your default index set via OpenSearch API using a simple local-exec (replace the `indices` pattern with your index set prefix if needed):
+
+```hcl
+provider "graylog" {
+  url            = "http://127.0.0.1:9000"
+  opensearch_url = "http://127.0.0.1:9200"
+}
+
+resource "graylog_opensearch_snapshot_repository" "fs_repo" {
+  name = "local"
+  type = "fs"
+
+  fs_settings {
+    location = "/snapshots"
+    compress = true
+  }
+}
+
+# Demonstration-only: create a snapshot via OpenSearch HTTP API
+resource "null_resource" "snapshot_now" {
+  provisioner "local-exec" {
+    command = <<EOT
+      curl -sS -XPUT \
+        -H 'Content-Type: application/json' \
+        http://127.0.0.1:9200/_snapshot/${graylog_opensearch_snapshot_repository.fs_repo.name}/snap-$(date +%Y%m%d%H%M%S) \
+        -d '{
+              "indices": "graylog_*",           
+              "ignore_unavailable": true,
+              "include_global_state": false
+            }'
+    EOT
+  }
+
+  depends_on = [graylog_opensearch_snapshot_repository.fs_repo]
+}
+```
+
+Tip: For production, prefer a scheduled job or a dedicated tool (e.g., OpenSearch plugins, Curator-equivalents, or CI) to create and rotate snapshots. Terraform is best used to provision the repository itself and to describe the desired backup targets/policies; not for periodic snapshot execution.
+
+## FAQ / Notes
+
+- Q: Does Graylog OSS have a native "Stream backup" button?
+  - A: No. Implement "Graylog stream backups" by creating an OpenSearch snapshot repository and scheduling snapshots of your Graylog indices.
+- Q: Which indices should I snapshot?
+  - A: Snapshot index sets used by your Streams (e.g., `graylog_*` by default), plus any additional indices you rely on.
 
 ## Argument Reference
 

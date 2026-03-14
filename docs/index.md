@@ -1,3 +1,16 @@
+## Important note for Graylog OSS
+
+Graylog OSS does not include built‑in "stream backups" or a one‑click "LDAP user sync". This provider documents and enables recommended approaches to implement these needs:
+
+- Graylog Stream Backups (Graylog backups): use OpenSearch snapshot repositories to back up the indices that store your Streams’ data. See: [graylog_opensearch_snapshot_repository](resources/graylog_opensearch_snapshot_repository) with FS/S3 examples.
+- Graylog LDAP Integration — sync LDAP groups to Graylog: use [graylog_ldap_group_members](data-sources/graylog_ldap_group_members) to read LDAP group members, then create/update users and assign roles with Terraform. Grant per‑stream access using role‑based permissions.
+
+Search hints (SEO): graylog stream backups, graylog backups, graylog OpenSearch snapshots, graylog ldap integration, graylog sync ldap groups to graylog, graylog ldap groups sync, graylog user sync ldap.
+
+## What's new in 0.3.0
+
+- OpenSearch snapshot repositories to enable backups of data written by your Streams (index snapshots). See resource: [graylog_opensearch_snapshot_repository](resources/graylog_opensearch_snapshot_repository).
+- LDAP group members data source to safely drive user sync/role mapping from your directory. See data source: [graylog_ldap_group_members](data-sources/graylog_ldap_group_members).
 
 Import supports IDs and readable keys where applicable. The provider recognizes UUID and 24-hex (Mongo ObjectID) automatically. For titles, you may also use the explicit `title:` prefix.
 
@@ -27,6 +40,28 @@ terraform import graylog_role.r read_only
 ```
 
 If multiple resources share the same title, import by ID to disambiguate.
+
+## Navigation by area
+
+- Streams
+  - Resources: [graylog_stream](resources/graylog_stream), [graylog_stream_permission](resources/graylog_stream_permission), [graylog_stream_output_binding](resources/graylog_stream_output_binding)
+  - Data sources: [graylog_streams](data-sources/graylog_streams)
+- Inputs & Outputs
+  - Resources: [graylog_input](resources/graylog_input), [graylog_output](resources/graylog_output)
+- Index Sets
+  - Resources: [graylog_index_set](resources/graylog_index_set)
+- Pipelines
+  - Resources: [graylog_pipeline](resources/graylog_pipeline)
+- Dashboards
+  - Resources: [graylog_dashboard](resources/graylog_dashboard), [graylog_dashboard_widget](resources/graylog_dashboard_widget), [graylog_dashboard_permission](resources/graylog_dashboard_permission)
+- Alerts & Events
+  - Resources: [graylog_alert](resources/graylog_alert), [graylog_event_notification](resources/graylog_event_notification)
+  - Data sources: [graylog_event_notifications](data-sources/graylog_event_notifications)
+- Users & Security
+  - Resources: [graylog_user](resources/graylog_user), [graylog_role](resources/graylog_role), [graylog_ldap_setting](resources/graylog_ldap_setting)
+  - Data sources: [graylog_user](data-sources/graylog_user), [graylog_users](data-sources/graylog_users), [graylog_ldap_group_members](data-sources/graylog_ldap_group_members)
+- OpenSearch & Backups
+  - Resources: [graylog_opensearch_snapshot_repository](resources/graylog_opensearch_snapshot_repository)
 
 ## Environment variables (all supported)
 

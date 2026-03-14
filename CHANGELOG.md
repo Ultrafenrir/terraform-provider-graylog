@@ -1,23 +1,23 @@
 # Changelog
 
-## v0.4.0 (2026-03-14)
-### Added
-- Resource: `graylog_opensearch_snapshot_repository` — manage OpenSearch snapshot repositories (generic `type + settings`; typed blocks `fs_settings` and `s3_settings`).
-- Data source: `graylog_ldap_group_members` — read members of an LDAP group (safe, read‑only) to drive user sync via `for_each`.
-- Provider options: `opensearch_url`, `opensearch_insecure` (+ ENV: `OPENSEARCH_URL`, `OPENSEARCH_INSECURE`).
-- Docker compose fixtures: MinIO (S3‑compatible, S3 API on host 9002) and OpenLDAP with LDIF (alice/bob, group `devops`) for acceptance tests.
+## v0.3.1 (2026-03-14)
+### Documentation
+- Added comprehensive guides for production use:
+  - `docs/guides/ldap-user-sync.md` — Complete LDAP user synchronization workflow with RBAC
+  - `docs/guides/stream-backups.md` — OpenSearch snapshot repositories for stream data backups
+  - `docs/guides/troubleshooting.md` — Common issues, debugging techniques, and solutions
+- Added production-ready examples:
+  - `examples/production/ldap-sync-rbac.tf` — Multi-team LDAP sync with role-based stream permissions
+  - `examples/production/backup-and-restore.tf` — S3 backup strategy with DR replication
+  - `examples/production/README.md` — Production deployment guide with best practices
+- Restructured main README with focus on unique features (LDAP sync, stream backups, RBAC)
+- Enhanced resource documentation with additional examples and usage patterns
 
-### Tests
-- Acceptance tests (tag `acceptance`):
-  - OpenSearch snapshot repository (FS typed, FS generic, S3 against MinIO) — green on GL 5/6/7.
-  - LDAP group members (expects group `devops` with 2 members) — green on GL 5/6/7.
-  - Stream permissions via `graylog_stream_permission` (CRUD + import) — green on GL 5/6/7.
+### Notes
+- All documentation is now Terraform Registry compliant
+- Production examples demonstrate complete workflows for OSS-specific use cases
 
-### Docs
-- New docs for `graylog_opensearch_snapshot_repository` and `graylog_ldap_group_members` (with examples).
-- README/docs: added notes about MinIO S3 API on port 9002, OpenSearch `repository-s3` plugin, and `path.repo` bind‑mount for FS snapshots.
-
-## v0.3.0 (2026-02-28)
+## v0.3.0 (2026-03-14)
 ### Added
 - Provider authentication methods: `auto`, `basic_userpass`, `basic_token` (with optional `api_token_password`), `bearer`, and legacy `basic_legacy_b64`.
 - TLS/HTTP options: `insecure_skip_verify`, `ca_bundle`, `client_cert`, `client_key`, `timeout`, `max_retries`, `retry_wait`.
@@ -45,12 +45,23 @@
   - `graylog_streams`, `graylog_dashboards`, `graylog_index_sets`, `graylog_event_notifications` — each returns `items` and a convenience `title_map`.
   - `graylog_inputs`, `graylog_users` — both return `items` and `title_map` (for users, map is `username -> id` with safe fallback on older versions).
  - Capability gating (version-aware validations): provider now probes feature availability and returns clear errors for unsupported features in resources (e.g., classic dashboards CRUD, event notifications).
+  
+  Additional in 0.3.0:
+  - Resource: `graylog_opensearch_snapshot_repository` — manage OpenSearch snapshot repositories (generic `type + settings`; typed blocks `fs_settings` and `s3_settings`).
+  - Data source: `graylog_ldap_group_members` — read members of an LDAP group (safe, read‑only) to drive user sync via `for_each`.
+  - Provider options: `opensearch_url`, `opensearch_insecure` (+ ENV: `OPENSEARCH_URL`, `OPENSEARCH_INSECURE`).
+  - Docker compose fixtures: MinIO (S3‑compatible, S3 API on host 9002) and OpenLDAP with LDIF (alice/bob, group `devops`) for acceptance tests.
 
 ### Tests
 - Unit tests extended for canonical JSON and permission helpers.
 - Integration tests green on Graylog 5/6/7 (known skips for classic Dashboard CRUD on some versions/images).
 - Acceptance tests green on 5/6/7 (known skips for Dashboard/Dashboard Widget/Event Notification where image/version limits apply).
 - Migration test `make test-migration` covers Terraform state across 5 → 6 → 7.
+  
+  Additional acceptance (0.3.0):
+  - OpenSearch snapshot repository (FS typed, FS generic, S3 against MinIO) — green on GL 5/6/7.
+  - LDAP group members (expects group `devops` with 2 members) — green on GL 5/6/7.
+  - Stream permissions via `graylog_stream_permission` (CRUD + import) — green on GL 5/6/7.
 
 ### Docs
 - Provider configuration docs expanded (auth methods, TLS/HTTP, logging, ENV list).
@@ -58,6 +69,10 @@
 - Resource docs added for new resources; README updated with Governance section and examples.
 - Typed alerts docs: `graylog_alert` documents both `threshold` and `aggregation` typed blocks with examples; added `grace_ms`, `backlog_size`, and `filter.streams`.
 - List data sources docs: added pages for `graylog_streams`, `graylog_dashboards`, `graylog_index_sets`, `graylog_event_notifications`; index and README include quick examples.
+  
+  Additional docs (0.3.0):
+  - New docs for `graylog_opensearch_snapshot_repository` and `graylog_ldap_group_members` (with examples and guidance on backups/sync).
+  - README/docs: notes about MinIO S3 API on port 9002, OpenSearch `repository-s3` plugin, and `path.repo` bind‑mount for FS snapshots.
 
 ### Notes
 - Classic Dashboard CRUD/permissions may be unavailable on some GL 5.x/6.x images; tests and examples include guards and skips.

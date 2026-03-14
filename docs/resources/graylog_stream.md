@@ -1,5 +1,6 @@
 ---
 page_title: "graylog_stream Resource - Graylog Terraform Provider"
+subcategory: "Streams"
 description: |-
   Terraform Graylog provider: manage Graylog streams and rules (automation/IaC). Keywords: terraform graylog provider, graylog terraform, terraform graylog, graylog automation, Graylog operation automation. Supports rule resynchronization on updates.
 ---

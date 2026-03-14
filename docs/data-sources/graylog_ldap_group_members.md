@@ -1,6 +1,18 @@
+---
+page_title: "graylog_ldap_group_members Data Source - Graylog"
+subcategory: "Users & Security"
+description: |-
+  Reads members of an LDAP group to drive Graylog user/role automation (safe, read-only). Combine with roles and stream permissions.
+---
+
 # graylog_ldap_group_members
 
 Reads members of an LDAP group by name. This is a safe, read-only helper to build user management flows (e.g., creating Graylog users with `for_each`).
+
+Note for Graylog OSS users (Graylog LDAP integration / sync LDAP groups to Graylog):
+
+- Graylog OSS does not include a built‑in, policy‑driven "sync users from LDAP" feature. Use this data source to implement "Graylog LDAP integration": fetch members of an LDAP group, then create/update Graylog users and assign roles with Terraform. Combine with `graylog_stream_permission` to grant per‑stream access to those roles.
+  - Keywords: graylog ldap integration, graylog sync ldap groups to graylog, graylog ldap groups sync, graylog user sync ldap.
 
 The data source connects directly to LDAP; it does not use Graylog’s LDAP settings.
 
@@ -31,6 +43,39 @@ resource "graylog_user" "ldap_synced" {
   full_name    = coalesce(each.value.display_name, each.key)
   password     = "disabled"   # manage auth via LDAP/SSO; use a generated value if needed
   set_password = false         # avoid leaking passwords into state/logs
+}
+```
+
+Sync roles from LDAP group (basic role mapping example):
+
+```hcl
+# Suppose members of LDAP group "devops" should get Graylog roles Reader + PowerUser
+locals {
+  devops_roles = ["Reader", "PowerUser"]
+}
+
+resource "graylog_user" "ldap_synced_with_roles" {
+  for_each = { for m in data.graylog_ldap_group_members.devops.members : m.username => m }
+
+  username  = each.key
+  email     = each.value.email
+  full_name = coalesce(each.value.display_name, each.key)
+
+  # Manage login via LDAP/SSO; do not store plaintext passwords in TF state
+  set_password = false
+
+  # Assign roles derived from LDAP group
+  roles = local.devops_roles
+}
+```
+
+Mapping roles to Stream permissions (grant role access to a Stream):
+
+```hcl
+resource "graylog_stream_permission" "devops_can_read" {
+  role_name = "DevOps"          # the role you assigned to LDAP users
+  stream_id = var.stream_id      # target stream ID
+  actions   = ["read"]          # or ["read", "edit", "share"]
 }
 ```
 

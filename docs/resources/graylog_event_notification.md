@@ -1,6 +1,6 @@
 ---
 page_title: "graylog_event_notification Resource - Graylog Terraform Provider"
-subcategory: "Events"
+subcategory: "Alerts & Events"
 description: |-
   Terraform Graylog provider: manage Graylog event notifications (email/http/slack/pagerduty) for alerting automation. Keywords: terraform graylog provider, graylog terraform, terraform graylog, graylog automation, Graylog operation automation.
 ---

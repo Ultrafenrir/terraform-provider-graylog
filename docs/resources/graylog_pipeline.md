@@ -1,5 +1,6 @@
 ---
 page_title: "graylog_pipeline Resource - Graylog Terraform Provider"
+subcategory: "Pipelines"
 description: |-
   Terraform Graylog provider: manage classic Graylog pipelines (DSL in `source`) for automation/IaC. Keywords: terraform graylog provider, graylog terraform, terraform graylog, graylog automation, Graylog operation automation.
 ---

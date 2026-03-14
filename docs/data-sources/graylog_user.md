@@ -1,5 +1,6 @@
 ---
 page_title: "graylog_user Data Source - Graylog"
+subcategory: "Users & Security"
 description: |-
   Lookup a Graylog user by username.
 ---

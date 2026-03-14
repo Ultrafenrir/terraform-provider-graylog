@@ -1,5 +1,6 @@
 ---
 page_title: "graylog_streams Data Source - Graylog"
+subcategory: "Streams"
 description: |-
   Lists Graylog streams and provides both full item objects and a title→id map for convenient lookups.
 ---

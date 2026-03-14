@@ -1,6 +1,6 @@
 ---
 page_title: "graylog_role Resource - Graylog Terraform Provider"
-subcategory: "Security"
+subcategory: "Users & Security"
 description: |-
   Terraform Graylog provider: manage Graylog roles (automation/IaC). Keywords: terraform graylog provider, graylog terraform, terraform graylog, graylog automation, Graylog operation automation. Управляет ролями в Graylog (название роли используется как идентификатор).
 ---

@@ -1,6 +1,6 @@
 ---
 page_title: "graylog_output Resource - Graylog Terraform Provider"
-subcategory: "Outputs"
+subcategory: "Inputs & Outputs"
 description: |-
   Terraform Graylog provider: manage Graylog outputs and attach them to streams (automation/IaC). Keywords: terraform graylog provider, graylog terraform, terraform graylog, graylog automation, Graylog operation automation. Управляет Output в Graylog и его привязками к Stream’ам.
 ---
