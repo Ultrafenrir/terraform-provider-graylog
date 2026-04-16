@@ -14,6 +14,8 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
@@ -50,13 +52,20 @@ func (r *streamResource) Schema(ctx context.Context, _ resource.SchemaRequest, r
 		Version:     2,
 		Description: "Manages a Graylog stream resource. Compatible with Graylog v5, v6, and v7.",
 		Attributes: map[string]schema.Attribute{
-			"id":                                 schema.StringAttribute{Computed: true, Description: "The unique identifier of the stream"},
-			"title":                              schema.StringAttribute{Required: true, Description: "The title of the stream"},
-			"description":                        schema.StringAttribute{Optional: true, Description: "Description of the stream"},
-			"disabled":                           schema.BoolAttribute{Optional: true, Description: "Whether the stream is disabled"},
-			"index_set_id":                       schema.StringAttribute{Optional: true, Description: "The index set ID to use for this stream"},
-			"remove_matches_from_default_stream": schema.BoolAttribute{Optional: true, Description: "When true, messages matching this stream are removed from the default stream"},
-			"timeouts":                           timeouts.Attributes(ctx, timeouts.Opts{Create: true, Update: true, Delete: true}),
+			"id":           schema.StringAttribute{Computed: true, Description: "The unique identifier of the stream"},
+			"title":        schema.StringAttribute{Required: true, Description: "The title of the stream"},
+			"description":  schema.StringAttribute{Optional: true, Description: "Description of the stream"},
+			"disabled":     schema.BoolAttribute{Optional: true, Description: "Whether the stream is disabled"},
+			"index_set_id": schema.StringAttribute{Optional: true, Description: "The index set ID to use for this stream"},
+			"remove_matches_from_default_stream": schema.BoolAttribute{
+				Optional:    true,
+				Computed:    true,
+				Description: "When true, messages matching this stream are removed from the default stream",
+				PlanModifiers: []planmodifier.Bool{
+					boolplanmodifier.UseStateForUnknown(),
+				},
+			},
+			"timeouts": timeouts.Attributes(ctx, timeouts.Opts{Create: true, Update: true, Delete: true}),
 		},
 		Blocks: map[string]schema.Block{
 			"rule": schema.ListNestedBlock{
