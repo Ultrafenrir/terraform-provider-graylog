@@ -2,6 +2,8 @@ PLUGIN=terraform-provider-graylog
 VERSION=0.3.0
 # Graylog version without image prefix (e.g., 5.0, 6.0, 7.0)
 GRAYLOG_VERSION ?= 6.0
+COMPOSE_FILE := $(CURDIR)/docker-compose.yml
+COMPOSE_PROJECT_NAME ?= tf-graylog
 
 # -------- Test controls --------
 # Package pattern to test (default: all)
@@ -91,23 +93,22 @@ test-acc:
 
 # ---------- Acceptance tests with docker-compose (like integration) ----------
 # Run acceptance tests against a real Graylog started by docker-compose
-test-acc-integration: graylog-up graylog-wait
+test-acc-integration:
 	@echo "Running acceptance tests (TF_ACC=1) against docker-compose Graylog..."
 	@echo "[acc] Forcing compose bring-up + wait explicitly..."
 	@$(MAKE) GRAYLOG_VERSION=$(GRAYLOG_VERSION) graylog-up
 	@$(MAKE) graylog-wait
 	@bash -lc 'if command -v docker-compose >/dev/null 2>&1; then DC="docker-compose"; else DC="docker compose"; fi; $$DC ps || true'
-	@bash -c '\
-	  set -e; \
-	  GL_BASIC=$$(printf "admin:admin" | base64); \
-	  export URL="$${URL:-http://127.0.0.1:9000/api}"; \
-	  export TOKEN="$${TOKEN:-$$GL_BASIC}"; \
-	  export ENABLE_OS_SNAPSHOT_ACC="$${ENABLE_OS_SNAPSHOT_ACC:-1}"; \
-	  export ENABLE_OS_S3_ACC="$${ENABLE_OS_S3_ACC:-1}"; \
-	  export ENABLE_LDAP_ACC="$${ENABLE_LDAP_ACC:-1}"; \
-	  TF_PATH=$$(command -v terraform || true); \
-	  export TF_ACC_TERRAFORM_PATH="$${TF_ACC_TERRAFORM_PATH:-$$TF_PATH}"; \
-	  TF_ACC=1 go test -v -tags=acceptance -run "^TestAcc" -timeout $(TIMEOUT) ./internal/provider'; \
+	@set -e; \
+	GL_BASIC=$$(printf "admin:admin" | base64); \
+	export URL="$${URL:-http://127.0.0.1:9000/api}"; \
+	export TOKEN="$${TOKEN:-$$GL_BASIC}"; \
+	export ENABLE_OS_SNAPSHOT_ACC="$${ENABLE_OS_SNAPSHOT_ACC:-1}"; \
+	export ENABLE_OS_S3_ACC="$${ENABLE_OS_S3_ACC:-1}"; \
+	export ENABLE_LDAP_ACC="$${ENABLE_LDAP_ACC:-1}"; \
+	TF_PATH=$$(command -v terraform || true); \
+	export TF_ACC_TERRAFORM_PATH="$${TF_ACC_TERRAFORM_PATH:-$$TF_PATH}"; \
+	TF_ACC=1 go test -v -tags=acceptance -run "^TestAcc" -timeout $(TIMEOUT) ./internal/provider; \
 	status=$$?; \
 	$(MAKE) graylog-down; \
 	exit $$status
@@ -116,25 +117,32 @@ test-acc-integration: graylog-up graylog-wait
 .PHONY: graylog-clean
 graylog-clean:
 	@echo "Cleaning up any leftover compose resources..."
-	@bash -lc 'set -e; \
-	  if command -v docker-compose >/dev/null 2>&1; then DC="docker-compose"; else DC="docker compose"; fi; \
-	  echo "Using $$DC for compose (clean)"; \
-	  $$DC down -v --remove-orphans || true'
+	@bash -lc 'set -euo pipefail; set -x; \
+	  if docker compose version >/dev/null 2>&1; then COMPOSE_BIN="docker"; COMPOSE_SUB="compose"; \
+	  elif docker-compose version >/dev/null 2>&1; then COMPOSE_BIN="docker-compose"; COMPOSE_SUB=""; \
+	  else echo "No docker compose found" >&2; exit 127; fi; \
+	  echo "Using $$COMPOSE_BIN $$COMPOSE_SUB for compose (clean)"; \
+	  $$COMPOSE_BIN $$COMPOSE_SUB -f "$(COMPOSE_FILE)" down -v --remove-orphans || true'
 
 # Override graylog-up to depend on cleanup first
 .PHONY: graylog-up
 graylog-up: graylog-clean
 	@echo "Starting Graylog stack via docker-compose..."
-	@bash -lc 'set -e; \
-	  if command -v docker-compose >/dev/null 2>&1; then DC="docker-compose"; else DC="docker compose"; fi; \
+	@bash -lc 'set -euo pipefail; set -x; \
+	  if docker compose version >/dev/null 2>&1; then COMPOSE_BIN="docker"; COMPOSE_SUB="compose"; \
+	  elif docker-compose version >/dev/null 2>&1; then COMPOSE_BIN="docker-compose"; COMPOSE_SUB=""; \
+	  else echo "No docker compose found" >&2; exit 127; fi; \
+	  ver="$(GRAYLOG_VERSION)"; case "$$ver" in 5|5.) ver="5.0";; 6|6.) ver="6.0";; 7|7.) ver="7.0";; esac; \
 	  mongo="$${MONGO_TAG:-7.0}"; \
 	  os="$${OPENSEARCH_TAG:-2.17.1}"; \
-	  echo Using MongoDB $$mongo and OpenSearch $$os for Graylog $(GRAYLOG_VERSION); \
-	  echo "Using $$DC for compose (up)"; \
-	  # Ensure OpenSearch snapshots directory exists and is writable by container user \
+	  echo Using MongoDB $$mongo and OpenSearch $$os for Graylog $$ver with compose file "$(COMPOSE_FILE)"; \
+	  echo "Using $$COMPOSE_BIN $$COMPOSE_SUB for compose (up)"; \
 	  mkdir -p ./compose/os_snapshots; \
 	  chmod -R 0777 ./compose/os_snapshots || true; \
-	  MONGO_TAG="$$mongo" OPENSEARCH_TAG="$$os" GRAYLOG_VERSION="$(GRAYLOG_VERSION)" $$DC up -d --remove-orphans'
+	  export COMPOSE_PROJECT_NAME="$(COMPOSE_PROJECT_NAME)"; \
+	  MONGO_TAG="$$mongo" OPENSEARCH_TAG="$$os" GRAYLOG_VERSION="$$ver" $$COMPOSE_BIN $$COMPOSE_SUB -f "$(COMPOSE_FILE)" up -d --remove-orphans; \
+	  $$COMPOSE_BIN $$COMPOSE_SUB -f "$(COMPOSE_FILE)" ps; \
+	  $$COMPOSE_BIN $$COMPOSE_SUB -f "$(COMPOSE_FILE)" config 1>/dev/null'
 
 # Run acceptance tests once for the current GRAYLOG_VERSION
 test-acc-one:
@@ -166,47 +174,62 @@ test: lint
 # Recreate ONLY the Graylog service (keep Mongo/OpenSearch running)
 graylog-up-graylog:
 	@echo "Recreating only Graylog service (keeping Mongo/OpenSearch)..."
-	@bash -lc 'set -e; \
-	  if command -v docker-compose >/dev/null 2>&1; then DC="docker-compose"; else DC="docker compose"; fi; \
+	@bash -lc 'set -euo pipefail; set -x; \
+	  if docker compose version >/dev/null 2>&1; then COMPOSE_BIN="docker"; COMPOSE_SUB="compose"; \
+	  elif docker-compose version >/dev/null 2>&1; then COMPOSE_BIN="docker-compose"; COMPOSE_SUB=""; \
+	  else echo "No docker compose found" >&2; exit 127; fi; \
+	  ver="$(GRAYLOG_VERSION)"; case "$$ver" in 5|5.) ver="5.0";; 6|6.) ver="6.0";; 7|7.) ver="7.0";; esac; \
 	  mongo="$${MONGO_TAG:-7.0}"; \
 	  os="$${OPENSEARCH_TAG:-2.17.1}"; \
 	  echo Using MongoDB $$mongo and OpenSearch $$os; \
-	  echo "Using $$DC for compose (recreate graylog)"; \
-	  MONGO_TAG="$$mongo" OPENSEARCH_TAG="$$os" GRAYLOG_VERSION="$(GRAYLOG_VERSION)" $$DC up -d --no-deps --force-recreate graylog'
+	  echo "Using $$COMPOSE_BIN $$COMPOSE_SUB for compose (recreate graylog)"; \
+	  export COMPOSE_PROJECT_NAME="$(COMPOSE_PROJECT_NAME)"; \
+	  MONGO_TAG="$$mongo" OPENSEARCH_TAG="$$os" GRAYLOG_VERSION="$$ver" $$COMPOSE_BIN $$COMPOSE_SUB -f "$(COMPOSE_FILE)" up -d --no-deps --force-recreate graylog; \
+	  $$COMPOSE_BIN $$COMPOSE_SUB -f "$(COMPOSE_FILE)" ps'
 
 graylog-down:
 	@echo "Stopping and removing Graylog stack..."
-	@bash -lc 'set -e; \
-	  if command -v docker-compose >/dev/null 2>&1; then DC="docker-compose"; else DC="docker compose"; fi; \
-	  echo "Using $$DC for compose (down)"; \
-	  $$DC down -v'
+	@bash -lc 'set -euo pipefail; set -x; \
+	  if docker compose version >/dev/null 2>&1; then COMPOSE_BIN="docker"; COMPOSE_SUB="compose"; \
+	  elif docker-compose version >/dev/null 2>&1; then COMPOSE_BIN="docker-compose"; COMPOSE_SUB=""; \
+	  else echo "No docker compose found" >&2; exit 127; fi; \
+	  echo "Using $$COMPOSE_BIN $$COMPOSE_SUB for compose (down)"; \
+	  $$COMPOSE_BIN $$COMPOSE_SUB -f "$(COMPOSE_FILE)" down -v'
 
 graylog-stop:
 	@echo "Stopping Graylog stack (preserving volumes)..."
-	@bash -lc 'set -e; \
-	  if command -v docker-compose >/dev/null 2>&1; then DC="docker-compose"; else DC="docker compose"; fi; \
-	  echo "Using $$DC for compose (stop)"; \
-	  $$DC stop'
+	@bash -lc 'set -euo pipefail; set -x; \
+	  if docker compose version >/dev/null 2>&1; then COMPOSE_BIN="docker"; COMPOSE_SUB="compose"; \
+	  elif docker-compose version >/dev/null 2>&1; then COMPOSE_BIN="docker-compose"; COMPOSE_SUB=""; \
+	  else echo "No docker compose found" >&2; exit 127; fi; \
+	  echo "Using $$COMPOSE_BIN $$COMPOSE_SUB for compose (stop)"; \
+	  $$COMPOSE_BIN $$COMPOSE_SUB -f "$(COMPOSE_FILE)" stop'
 
 graylog-logs:
 	@echo "Graylog logs:"
-	@bash -lc 'set -e; \
-	  if command -v docker-compose >/dev/null 2>&1; then DC="docker-compose"; else DC="docker compose"; fi; \
-	  $$DC logs -f graylog'
+	@bash -lc 'set -euo pipefail; set -x; \
+	  if docker compose version >/dev/null 2>&1; then COMPOSE_BIN="docker"; COMPOSE_SUB="compose"; \
+	  elif docker-compose version >/dev/null 2>&1; then COMPOSE_BIN="docker-compose"; COMPOSE_SUB=""; \
+	  else echo "No docker compose found" >&2; exit 127; fi; \
+	  $$COMPOSE_BIN $$COMPOSE_SUB -f "$(COMPOSE_FILE)" logs -f graylog'
 
 # Show docker compose services status
 graylog-ps:
 	@echo "Docker compose services status:"
-	@bash -lc 'set -e; \
-	  if command -v docker-compose >/dev/null 2>&1; then DC="docker-compose"; else DC="docker compose"; fi; \
-	  $$DC ps'
+	@bash -lc 'set -euo pipefail; set -x; \
+	  if docker compose version >/dev/null 2>&1; then COMPOSE_BIN="docker"; COMPOSE_SUB="compose"; \
+	  elif docker-compose version >/dev/null 2>&1; then COMPOSE_BIN="docker-compose"; COMPOSE_SUB=""; \
+	  else echo "No docker compose found" >&2; exit 127; fi; \
+	  $$COMPOSE_BIN $$COMPOSE_SUB -f "$(COMPOSE_FILE)" ps'
 
 # Wait until API is available (200 or 401 on /api/system)
 graylog-wait:
 	@echo "Waiting for Graylog readiness (max ~180s)..."
-	@bash -lc 'set -e; \
-	  if command -v docker-compose >/dev/null 2>&1; then DC="docker-compose"; else DC="docker compose"; fi; \
-	  cid=$$($$DC ps -q graylog || true); \
+	@bash -lc 'set -euo pipefail; set -x; \
+	  if docker compose version >/dev/null 2>&1; then COMPOSE_BIN="docker"; COMPOSE_SUB="compose"; \
+	  elif docker-compose version >/dev/null 2>&1; then COMPOSE_BIN="docker-compose"; COMPOSE_SUB=""; \
+	  else echo "No docker compose found" >&2; exit 127; fi; \
+	  cid=$$($$COMPOSE_BIN $$COMPOSE_SUB -f "$(COMPOSE_FILE)" ps -q graylog || true); \
 	  for i in $$(seq 1 60); do \
 	    code=$$(curl -sk -o /dev/null -w "%{http_code}" http://127.0.0.1:9000/api/system || true); \
 	    health="unknown"; \
@@ -219,12 +242,12 @@ graylog-wait:
 	    echo "Waiting... attempt $$i (HTTP=$$code, health=$$health)"; sleep 3; \
 	  done; \
 	  echo "Graylog did not become ready in ~180s. Dumping docker status/logs..."; \
-	  $$DC ps || true; \
-	  $$DC logs --tail=200 graylog || true; \
+	  $$COMPOSE_BIN $$COMPOSE_SUB -f "$(COMPOSE_FILE)" ps || true; \
+	  $$COMPOSE_BIN $$COMPOSE_SUB -f "$(COMPOSE_FILE)" logs --tail=200 graylog || true; \
 	  exit 1'
 
 # Integration tests with a real Graylog
-test-integration: graylog-up graylog-wait
+test-integration:
 	@echo "Running integration tests..."
 	@echo "[int] Forcing compose bring-up + wait explicitly..."
 	@$(MAKE) GRAYLOG_VERSION=$(GRAYLOG_VERSION) graylog-up

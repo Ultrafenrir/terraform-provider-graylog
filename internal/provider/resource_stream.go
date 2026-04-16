@@ -133,18 +133,26 @@ func (r *streamResource) Create(ctx context.Context, req resource.CreateRequest,
 	ctx, cancel := context.WithTimeout(ctx, createTimeout)
 	defer cancel()
 
+	// If remove_matches_from_default_stream is not set, use false as default
+	removeMatches := false
+	if !data.RemoveMatchesFromDefault.IsNull() && !data.RemoveMatchesFromDefault.IsUnknown() {
+		removeMatches = data.RemoveMatchesFromDefault.ValueBool()
+	}
+
 	created, err := r.client.WithContext(ctx).CreateStream(&client.Stream{
 		Title:                          data.Title.ValueString(),
 		Description:                    data.Description.ValueString(),
 		Disabled:                       data.Disabled.ValueBool(),
 		IndexSetID:                     data.IndexSetID.ValueString(),
-		RemoveMatchesFromDefaultStream: data.RemoveMatchesFromDefault.ValueBool(),
+		RemoveMatchesFromDefaultStream: removeMatches,
 	})
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating stream", err.Error())
 		return
 	}
 	data.ID = types.StringValue(created.ID)
+	// Read back actual values from API to ensure all computed fields are populated
+	data.RemoveMatchesFromDefault = types.BoolValue(created.RemoveMatchesFromDefaultStream)
 	// Create rules if provided via dedicated API
 	for i, rr := range data.Rules {
 		rule := &client.StreamRule{
@@ -261,12 +269,19 @@ func (r *streamResource) Update(ctx context.Context, req resource.UpdateRequest,
 	defer cancel()
 
 	streamID := state.ID.ValueString()
+
+	// If remove_matches_from_default_stream is not set in plan, preserve from state
+	removeMatches := state.RemoveMatchesFromDefault.ValueBool()
+	if !plan.RemoveMatchesFromDefault.IsNull() && !plan.RemoveMatchesFromDefault.IsUnknown() {
+		removeMatches = plan.RemoveMatchesFromDefault.ValueBool()
+	}
+
 	_, err := r.client.WithContext(ctx).UpdateStream(streamID, &client.Stream{
 		Title:                          plan.Title.ValueString(),
 		Description:                    plan.Description.ValueString(),
 		Disabled:                       plan.Disabled.ValueBool(),
 		IndexSetID:                     plan.IndexSetID.ValueString(),
-		RemoveMatchesFromDefaultStream: plan.RemoveMatchesFromDefault.ValueBool(),
+		RemoveMatchesFromDefaultStream: removeMatches,
 	})
 	if err != nil {
 		resp.Diagnostics.AddError("Error updating stream", err.Error())
@@ -332,6 +347,8 @@ func (r *streamResource) Update(ctx context.Context, req resource.UpdateRequest,
 	}
 	// Update state: keep ID from state; other fields come from the plan
 	plan.ID = types.StringValue(streamID)
+	// Ensure remove_matches_from_default_stream is set to the actual value used
+	plan.RemoveMatchesFromDefault = types.BoolValue(removeMatches)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
