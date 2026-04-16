@@ -363,7 +363,8 @@ data "graylog_ldap_group_members" "secure" {
   starttls = true
 
   # Only for dev/test:
-  # insecure_skip_verify = true
+  # insecure = true              # alias of insecure_skip_verify for self-signed certs
+  # insecure_skip_verify = true  # legacy name
 }
 ```
 

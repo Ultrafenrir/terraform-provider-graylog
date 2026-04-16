@@ -1,5 +1,6 @@
 ---
 page_title: "graylog_alert Resource - Graylog Terraform Provider"
+subcategory: "Alerts & Events / Resources"
 description: |-
   Terraform Graylog provider: manage Graylog alerts (Event Definitions) with flexible config and notifications (automation/IaC). Keywords: terraform graylog provider, graylog terraform, terraform graylog, graylog automation, Graylog operation automation.
 ---
@@ -165,8 +166,8 @@ Additionally, a typed `aggregation` block (Optional) mirrors the structure of `t
 - `id` — Event Definition ID.
 
 ## Notes
-- Если указаны и typed‑блоки, и `config`, провайдер отдаёт приоритет typed‑блокам и приводит `config` в состоянии к каноническому JSON эквивалентной конфигурации.
-- Чтобы избежать неожиданного дрейфа после `import` ресурсов, провайдер не заполняет typed‑блоки из `config` автоматически, если соответствующий блок отсутствовал в состоянии/плане.
+- If both typed blocks and `config` are set, the provider prioritizes typed blocks and normalizes `config` in state to the canonical JSON of the equivalent configuration.
+- To avoid unexpected drift after a resource `import`, the provider does not auto‑populate typed blocks from `config` if the corresponding block was not present in the state/plan.
 
 ## Import
 

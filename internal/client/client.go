@@ -72,7 +72,7 @@ func New(baseURL, token string) *Client {
 		ctx:        context.Background(),
 		logger:     NoopLogger{},
 	}
-	// Нормализуем базовый URL: храним без суффикса /api, префикс /api добавляем в путях по версии API
+	// Normalize base URL: store without /api suffix; add /api prefix in request paths based on API version
 	if strings.HasSuffix(c.BaseURL, "/api") {
 		c.BaseURL = strings.TrimSuffix(c.BaseURL, "/api")
 	}
@@ -80,7 +80,7 @@ func New(baseURL, token string) *Client {
 	return c
 }
 
-// Options — расширенные настройки клиента для провайдера Terraform 0.3.0
+// Options — extended client options for Terraform provider v0.3.0
 type Options struct {
 	// Auth
 	AuthMethod       string // auto|basic_userpass|basic_token|basic_legacy_b64|bearer|none
@@ -89,7 +89,7 @@ type Options struct {
 	APIToken         string
 	APITokenPassword string
 	BearerToken      string
-	LegacyTokenB64   string // совместимость с старым полем token
+	LegacyTokenB64   string // compatibility with legacy 'token' field
 
 	// Transport/TLS
 	InsecureSkipVerify bool
@@ -105,7 +105,7 @@ type Options struct {
 	OpenSearchURL string
 }
 
-// NewWithOptions создаёт клиента с расширенными возможностями аутентификации и TLS
+// NewWithOptions creates a client with extended authentication and TLS options
 func NewWithOptions(baseURL string, opts Options) *Client {
 	c := &Client{
 		BaseURL:            strings.TrimRight(baseURL, "/"),
@@ -136,7 +136,7 @@ func NewWithOptions(baseURL string, opts Options) *Client {
 	if opts.RetryWait > 0 {
 		c.RetryWait = opts.RetryWait
 	}
-	// Нормализуем базовый URL
+	// Normalize base URL
 	if strings.HasSuffix(c.BaseURL, "/api") {
 		c.BaseURL = strings.TrimSuffix(c.BaseURL, "/api")
 	}
@@ -182,14 +182,14 @@ func (c *Client) GetCapabilities() *Capabilities {
 }
 
 func buildHTTPClient(opts Options) *http.Client {
-	// Базовая транспортная конфигурация
+	// Base transport configuration
 	tr := &http.Transport{}
 
 	// TLS
-	tlsCfg := &tls.Config{InsecureSkipVerify: opts.InsecureSkipVerify} //nolint:gosec // управляется пользователем
+	tlsCfg := &tls.Config{InsecureSkipVerify: opts.InsecureSkipVerify} //nolint:gosec // user-controlled
 	// CA bundle
 	if opts.CABundlePath != "" {
-		// Пытаемся прочитать кастомный корневой пул
+		// Attempt to read a custom root CA pool
 		if pem, err := os.ReadFile(opts.CABundlePath); err == nil {
 			pool := x509.NewCertPool()
 			if pool.AppendCertsFromPEM(pem) {
@@ -214,11 +214,11 @@ func buildHTTPClient(opts Options) *http.Client {
 	return httpClient
 }
 
-// setAuthHeader применяет заголовок Authorization согласно выбранному способу аутентификации
+// setAuthHeader sets Authorization header according to the chosen authentication method
 func (c *Client) setAuthHeader(req *http.Request) {
 	method := c.AuthMethod
 	if method == "" || method == "auto" {
-		// авто-выбор в порядке приоритета: user/pass → api_token → bearer → legacy b64
+		// Auto-select in priority order: user/pass → api_token → bearer → legacy b64
 		switch {
 		case c.Username != "" || c.Password != "":
 			method = "basic_userpass"
@@ -239,7 +239,7 @@ func (c *Client) setAuthHeader(req *http.Request) {
 		hdr := base64.StdEncoding.EncodeToString([]byte(c.Username + ":" + c.Password))
 		req.Header.Set("Authorization", "Basic "+hdr)
 	case "basic_token":
-		// token:password → Base64; пароль по умолчанию пустой
+		// token:password → Base64; password is empty by default
 		pass := c.APITokenPassword
 		hdr := base64.StdEncoding.EncodeToString([]byte(c.APIToken + ":" + pass))
 		req.Header.Set("Authorization", "Basic "+hdr)
@@ -250,18 +250,18 @@ func (c *Client) setAuthHeader(req *http.Request) {
 			req.Header.Set("Authorization", "Basic "+c.Token)
 		}
 	case "none":
-		// ничего
+		// do nothing
 	default:
-		// неизвестный метод — не устанавливаем заголовок
+		// unknown method — do not set header
 	}
 }
 
 func (c *Client) detectVersion() {
-	// По умолчанию считаем v5, пока не докажем обратное
+	// Assume v5 by default until proven otherwise
 	c.APIVersion = APIV5
 	headerDetected := false
 
-	// Пытаемся определить версию по нескольким базовым URL и путям
+	// Try to detect version using several base URLs and paths
 	bases := []string{c.BaseURL}
 	if strings.HasSuffix(c.BaseURL, "/api") {
 		bases = append(bases, strings.TrimSuffix(c.BaseURL, "/api"))
@@ -273,7 +273,7 @@ func (c *Client) detectVersion() {
 			if err != nil {
 				continue
 			}
-			// Добавляем те же заголовки, что и в обычных запросах, чтобы на 401 сервер прислал версию
+			// Add same headers as in regular requests so that on 401 server still returns version header
 			req.Header.Set("Accept", "application/json")
 			req.Header.Set("X-Requested-By", "terraform-provider")
 			c.setAuthHeader(req)
@@ -741,44 +741,49 @@ type Stream struct {
 	Disabled     bool   `json:"disabled,omitempty"`
 	IndexSetID   string `json:"index_set_id,omitempty"`
 	MatchingType string `json:"matching_type,omitempty"`
-	Rules        []Rule `json:"rules,omitempty"`
+	// When true, messages matching this stream are removed from the default stream
+	RemoveMatchesFromDefaultStream bool   `json:"remove_matches_from_default_stream,omitempty"`
+	Rules                          []Rule `json:"rules,omitempty"`
 }
 
 func (c *Client) CreateStream(s *Stream) (*Stream, error) {
-	// Унифицированный путь для всех поддерживаемых версий
+	// Unified path for all supported versions
 	path := "/api/streams"
-	// matching type по умолчанию
+	// Default matching type
 	matchingType := s.MatchingType
 	if matchingType == "" {
 		matchingType = "AND"
 	}
 
-	// Подготовим оба варианта тела запроса
-	// v7+ (CreateEntityRequest с обёрткой entity)
+	// Prepare both request body variants
+	// v7+ (CreateEntityRequest with an entity wrapper)
 	v7Body := map[string]any{
 		"entity": map[string]any{
 			"title":         s.Title,
 			"description":   s.Description,
 			"index_set_id":  s.IndexSetID,
 			"matching_type": matchingType,
+			// best-effort: some versions may ignore this in create entity wrapper, but include it when supported
+			"remove_matches_from_default_stream": s.RemoveMatchesFromDefaultStream,
 		},
 	}
-	// v5/v6 (прямая форма snake_case, без disabled)
+	// v5/v6 (direct snake_case form, without disabled)
 	var rules any = s.Rules
 	if rules == nil {
 		rules = []any{}
 	}
 	legacyBody := map[string]any{
-		"title":         s.Title,
-		"description":   s.Description,
-		"index_set_id":  s.IndexSetID,
-		"matching_type": matchingType,
-		"rules":         rules,
+		"title":                              s.Title,
+		"description":                        s.Description,
+		"index_set_id":                       s.IndexSetID,
+		"matching_type":                      matchingType,
+		"remove_matches_from_default_stream": s.RemoveMatchesFromDefaultStream,
+		"rules":                              rules,
 	}
 
-	// Стратегия: сначала пробуем v7-совместимый вариант, затем фолбэк на legacy.
+	// Strategy: try v7-compatible payload first, then fallback to legacy
 	tryBodies := []map[string]any{v7Body, legacyBody}
-	// Если клиент уверен, что это v5/v6 — попробуем сперва legacy
+	// If client is known to be v5/v6 — try legacy first
 	if c.APIVersion == APIV5 || c.APIVersion == APIV6 {
 		tryBodies = []map[string]any{legacyBody, v7Body}
 	}
@@ -787,14 +792,14 @@ func (c *Client) CreateStream(s *Stream) (*Stream, error) {
 	for i, body := range tryBodies {
 		resp, err := c.doRequest("POST", path, body)
 		if err != nil {
-			// При явной ошибке 4xx попробуем следующий вариант тела
+			// On explicit 4xx error try the next payload variant
 			lastResp = []byte(err.Error())
 			if i+1 < len(tryBodies) {
 				continue
 			}
 			return nil, err
 		}
-		// Успех: попробуем извлечь stream_id из разных форматов
+		// Success: try to extract stream_id from different response shapes
 		var out Stream
 		var aux map[string]any
 		if json.Unmarshal(resp, &aux) == nil {
@@ -804,7 +809,7 @@ func (c *Client) CreateStream(s *Stream) (*Stream, error) {
 					return &out, nil
 				}
 			}
-			// иногда ответ может быть {"stream": {"id": "..."}}
+			// sometimes response can be {"stream": {"id": "..."}}
 			if stream, ok := aux["stream"].(map[string]any); ok {
 				if id, ok := stream["id"].(string); ok && id != "" {
 					out.ID = id
@@ -812,19 +817,19 @@ func (c *Client) CreateStream(s *Stream) (*Stream, error) {
 				}
 			}
 		}
-		// Fallback: распакуем напрямую
+		// Fallback: unmarshal directly into Stream
 		_ = json.Unmarshal(resp, &out)
 		if out.ID != "" {
 			return &out, nil
 		}
-		// если дошли сюда — сохраним тело и продолжим (на случай второго обхода)
+		// If we got here — save the body and continue (in case of the second attempt)
 		lastResp = resp
 	}
 	return nil, fmt.Errorf("failed to create stream: unexpected response %s", string(lastResp))
 }
 
 func (c *Client) GetStream(id string) (*Stream, error) {
-	// Унифицированный путь для всех поддерживаемых версий
+	// Unified path for all supported versions
 	path := fmt.Sprintf("/api/streams/%s", id)
 	resp, err := c.doRequest("GET", path, nil)
 	if err != nil {
@@ -836,29 +841,29 @@ func (c *Client) GetStream(id string) (*Stream, error) {
 }
 
 func (c *Client) UpdateStream(id string, s *Stream) (*Stream, error) {
-	// Унифицированный путь для всех поддерживаемых версий
+	// Unified path for all supported versions
 	path := fmt.Sprintf("/api/streams/%s", id)
-	// matching type по умолчанию
+	// Default matching type
 	matchingType := s.MatchingType
 	if matchingType == "" {
 		matchingType = "AND"
 	}
 	var body any = s
 	if c.APIVersion == APIV7 {
-		// v7 UpdateStreamRequest использует snake_case; поля disabled нет
+		// v7 UpdateStreamRequest uses snake_case; there is no 'disabled' field
 		body = map[string]any{
 			"title":         s.Title,
 			"description":   s.Description,
 			"index_set_id":  s.IndexSetID,
 			"matching_type": matchingType,
-			// по умолчанию не переносим совпадения из default stream
-			"remove_matches_from_default_stream": false,
+			// controlled behavior for removing from default stream
+			"remove_matches_from_default_stream": s.RemoveMatchesFromDefaultStream,
 		}
 	}
-	// Попытаемся выполнить обновление устойчиво к различиям версий/эндпоинтов.
-	// 1) Основная попытка: PUT
-	// 2) При 405 Method Not Allowed — пробуем PATCH
-	// 3) Если снова 405 — пробуем POST (некоторые инсталляции проксей ограничивают методы)
+	// Try to perform update resilient to version/endpoint differences:
+	// 1) Primary attempt: PUT
+	// 2) If 405 Method Not Allowed — try PATCH
+	// 3) If 405 again — try POST (some proxies restrict methods)
 	var resp []byte
 	methods := []string{"PUT", "PATCH", "POST"}
 	for i, m := range methods {
@@ -867,30 +872,30 @@ func (c *Client) UpdateStream(id string, s *Stream) (*Stream, error) {
 			resp = r
 			break
 		}
-		// Если ошибка не о методе (405), а что-то иное, то нет смысла продолжать перебор
+		// If error is not 405 (method), no point continuing
 		if ge, ok := e.(*GraylogError); ok {
 			if ge.Status == http.StatusMethodNotAllowed {
-				// попробуем следующий метод
+				// try next method
 				if i+1 < len(methods) {
 					continue
 				}
-				// методов больше нет — вернём последнюю ошибку
+				// no more methods — return last error
 				return nil, e
 			}
 		}
-		// Иная ошибка — сразу выходим
+		// Different error — return immediately
 		return nil, e
 	}
 	var out Stream
 	_ = json.Unmarshal(resp, &out)
-	// Для v7 при необходимости синхронизируем disabled через /pause или /resume
+	// For v7, if needed, synchronize disabled via /pause or /resume
 	if c.APIVersion == APIV7 {
 		if s.Disabled {
 			_, _ = c.doRequest("POST", fmt.Sprintf("%s/pause", path), nil)
 		} else {
 			_, _ = c.doRequest("POST", fmt.Sprintf("%s/resume", path), nil)
 		}
-		// перечитаем состояние, чтобы вернуть актуальные поля
+		// re-read current state to return up-to-date fields
 		got, gerr := c.GetStream(id)
 		if gerr == nil {
 			return got, nil
@@ -900,7 +905,7 @@ func (c *Client) UpdateStream(id string, s *Stream) (*Stream, error) {
 }
 
 func (c *Client) DeleteStream(id string) error {
-	// Унифицированный путь для всех поддерживаемых версий
+	// Unified path for all supported versions
 	path := fmt.Sprintf("/api/streams/%s", id)
 	_, err := c.doRequest("DELETE", path, nil)
 	return err

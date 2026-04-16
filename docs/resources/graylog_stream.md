@@ -16,6 +16,8 @@ resource "graylog_stream" "errors" {
   title        = "errors"
   description  = "Error logs"
   index_set_id = graylog_index_set.main.id
+  # Remove matching messages from the default stream
+  remove_matches_from_default_stream = true
 
   rule {
     field       = "level"
@@ -40,6 +42,7 @@ resource "graylog_stream" "errors" {
 - `description` (String, Optional) — Stream description.
 - `disabled` (Boolean, Optional) — Whether the stream is disabled.
 - `index_set_id` (String, Optional) — Index set ID to use for the stream.
+- `remove_matches_from_default_stream` (Boolean, Optional) — When true, messages matching this stream are removed from the default stream.
 - `timeouts` (Block, Optional) — Customize create/update/delete timeouts.
 
 ### rule (Block)

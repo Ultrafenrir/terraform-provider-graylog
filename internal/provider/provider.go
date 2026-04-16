@@ -28,6 +28,7 @@ type graylogProviderModel struct {
 	BearerToken      types.String `tfsdk:"bearer_token"`
 	Token            types.String `tfsdk:"token"` // legacy base64
 	// TLS/HTTP
+	Insecure           types.Bool   `tfsdk:"insecure"`
 	InsecureSkipVerify types.Bool   `tfsdk:"insecure_skip_verify"`
 	CABundlePath       types.String `tfsdk:"ca_bundle"`
 	ClientCertPath     types.String `tfsdk:"client_cert"`
@@ -59,6 +60,7 @@ func (p *graylogProvider) Schema(_ context.Context, _ provider.SchemaRequest, re
 			"bearer_token":       providerschema.StringAttribute{Optional: true, Sensitive: true},
 			"token":              providerschema.StringAttribute{Optional: true, Sensitive: true, DeprecationMessage: "use username/password or api_token instead"},
 			// TLS/HTTP
+			"insecure":             providerschema.BoolAttribute{Optional: true, Description: "Alias of insecure_skip_verify. When true, TLS certificate verification is skipped (self-signed certs)."},
 			"insecure_skip_verify": providerschema.BoolAttribute{Optional: true},
 			"ca_bundle":            providerschema.StringAttribute{Optional: true},
 			"client_cert":          providerschema.StringAttribute{Optional: true},
@@ -80,7 +82,7 @@ func (p *graylogProvider) Configure(ctx context.Context, req provider.ConfigureR
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	// Подстановка из ENV при отсутствии значения в схеме
+	// Fallback to environment variables when attributes are unset in configuration
 	// URL
 	url := firstNonEmpty(getString(data.URL), os.Getenv("GRAYLOG_URL"))
 	// Auth
@@ -93,7 +95,9 @@ func (p *graylogProvider) Configure(ctx context.Context, req provider.ConfigureR
 	legacyToken := firstNonEmpty(getString(data.Token), os.Getenv("GRAYLOG_TOKEN"))
 
 	// TLS/HTTP
-	insecure := getBool(data.InsecureSkipVerify, os.Getenv("GRAYLOG_INSECURE") == "1")
+	// Support both `insecure` and legacy `insecure_skip_verify` attributes; also GRAYLOG_INSECURE=1
+	insecure := getBool(data.Insecure, os.Getenv("GRAYLOG_INSECURE") == "1") ||
+		getBool(data.InsecureSkipVerify, os.Getenv("GRAYLOG_INSECURE") == "1")
 	caBundle := firstNonEmpty(getString(data.CABundlePath), os.Getenv("GRAYLOG_CA_BUNDLE"))
 	clientCert := firstNonEmpty(getString(data.ClientCertPath), os.Getenv("GRAYLOG_CLIENT_CERT"))
 	clientKey := firstNonEmpty(getString(data.ClientKeyPath), os.Getenv("GRAYLOG_CLIENT_KEY"))
@@ -106,7 +110,7 @@ func (p *graylogProvider) Configure(ctx context.Context, req provider.ConfigureR
 	osURL := firstNonEmpty(getString(data.OpenSearchURL), os.Getenv("OPENSEARCH_URL"))
 	osInsecure := getBool(data.OpenSearchInsecure, os.Getenv("OPENSEARCH_INSECURE") == "1")
 
-	// Парсим длительности
+	// Parse durations
 	var timeout time.Duration
 	if timeoutStr != "" {
 		if d, err := time.ParseDuration(timeoutStr); err == nil {
@@ -120,7 +124,7 @@ func (p *graylogProvider) Configure(ctx context.Context, req provider.ConfigureR
 		}
 	}
 
-	// Валидация auth_method (минимальная)
+	// Validate auth_method (basic)
 	switch authMethod {
 	case "", "auto", "basic_userpass", "basic_token", "basic_legacy_b64", "bearer", "none":
 	default:
@@ -148,7 +152,7 @@ func (p *graylogProvider) Configure(ctx context.Context, req provider.ConfigureR
 
 	c := client.NewWithOptions(url, opts)
 
-	// tflog адаптер с фильтром по уровню
+	// tflog adapter with level filtering
 	c.SetLogger(newTfLogger(logLevel))
 	resp.DataSourceData = c
 	resp.ResourceData = c

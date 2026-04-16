@@ -673,7 +673,8 @@ provider "graylog" {
 **Solution (dev/test only):**
 ```hcl
 provider "graylog" {
-  insecure_skip_verify = true
+  insecure = true              # alias of insecure_skip_verify (dev/test only)
+  # insecure_skip_verify = true  # legacy name
 }
 ```
 

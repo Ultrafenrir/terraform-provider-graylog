@@ -249,7 +249,7 @@ Combine with LDAP sync for complete automated RBAC.
   - `basic_token`: `api_token` (optionally `api_token_password`).
   - `bearer`: `bearer_token`.
   - `basic_legacy_b64`: legacy base64 `token` for compatibility.
-- TLS/HTTP: `insecure_skip_verify`, `ca_bundle`, `client_cert`, `client_key`, `timeout`, `max_retries`, `retry_wait`.
+- TLS/HTTP: `insecure` (alias of `insecure_skip_verify`), `insecure_skip_verify`, `ca_bundle`, `client_cert`, `client_key`, `timeout`, `max_retries`, `retry_wait`.
 - OpenSearch auxiliary settings (for features like snapshot repositories): `opensearch_url`, `opensearch_insecure`.
 - Logging: `log_level` (tflog) controls client/provider verbosity.
 
