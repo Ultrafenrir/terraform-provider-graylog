@@ -87,7 +87,8 @@ resource "graylog_stream_permission" "devops_can_read" {
 - `base_dn` (Required) — Search base DN.
 - `group_name` (Required) — Group common name (cn) to resolve.
 - `starttls` (Optional) — Use StartTLS over plain LDAP.
-- `insecure_skip_verify` (Optional) — Skip TLS verification (dev/test only).
+- `insecure` (Optional) — Skip TLS verification (alias of `insecure_skip_verify`; use for self‑signed certs in dev/test).
+- `insecure_skip_verify` (Optional) — Skip TLS verification (legacy name).
 
 Attribute mapping (optional overrides; sensible defaults for `groupOfNames`/`inetOrgPerson`):
 - `group_filter` (default `(cn=%s)`) — Group search filter; `%s` is replaced with the escaped `group_name`.

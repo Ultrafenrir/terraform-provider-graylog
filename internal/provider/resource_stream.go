@@ -14,6 +14,8 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
@@ -29,13 +31,14 @@ type streamRuleModel struct {
 }
 
 type streamModel struct {
-	ID          types.String      `tfsdk:"id"`
-	Title       types.String      `tfsdk:"title"`
-	Description types.String      `tfsdk:"description"`
-	Disabled    types.Bool        `tfsdk:"disabled"`
-	IndexSetID  types.String      `tfsdk:"index_set_id"`
-	Rules       []streamRuleModel `tfsdk:"rule"`
-	Timeouts    timeouts.Value    `tfsdk:"timeouts"`
+	ID                       types.String      `tfsdk:"id"`
+	Title                    types.String      `tfsdk:"title"`
+	Description              types.String      `tfsdk:"description"`
+	Disabled                 types.Bool        `tfsdk:"disabled"`
+	IndexSetID               types.String      `tfsdk:"index_set_id"`
+	RemoveMatchesFromDefault types.Bool        `tfsdk:"remove_matches_from_default_stream"`
+	Rules                    []streamRuleModel `tfsdk:"rule"`
+	Timeouts                 timeouts.Value    `tfsdk:"timeouts"`
 }
 
 func NewStreamResource() resource.Resource { return &streamResource{} }
@@ -46,7 +49,7 @@ func (r *streamResource) Metadata(_ context.Context, _ resource.MetadataRequest,
 
 func (r *streamResource) Schema(ctx context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Version:     2,
+		Version:     3,
 		Description: "Manages a Graylog stream resource. Compatible with Graylog v5, v6, and v7.",
 		Attributes: map[string]schema.Attribute{
 			"id":           schema.StringAttribute{Computed: true, Description: "The unique identifier of the stream"},
@@ -54,7 +57,15 @@ func (r *streamResource) Schema(ctx context.Context, _ resource.SchemaRequest, r
 			"description":  schema.StringAttribute{Optional: true, Description: "Description of the stream"},
 			"disabled":     schema.BoolAttribute{Optional: true, Description: "Whether the stream is disabled"},
 			"index_set_id": schema.StringAttribute{Optional: true, Description: "The index set ID to use for this stream"},
-			"timeouts":     timeouts.Attributes(ctx, timeouts.Opts{Create: true, Update: true, Delete: true}),
+			"remove_matches_from_default_stream": schema.BoolAttribute{
+				Optional:    true,
+				Computed:    true,
+				Description: "When true, messages matching this stream are removed from the default stream",
+				PlanModifiers: []planmodifier.Bool{
+					boolplanmodifier.UseStateForUnknown(),
+				},
+			},
+			"timeouts": timeouts.Attributes(ctx, timeouts.Opts{Create: true, Update: true, Delete: true}),
 		},
 		Blocks: map[string]schema.Block{
 			"rule": schema.ListNestedBlock{
@@ -72,6 +83,25 @@ func (r *streamResource) Schema(ctx context.Context, _ resource.SchemaRequest, r
 			},
 		},
 	}
+}
+
+// UpgradeState migrates prior state versions to the latest schema version.
+// v2 -> v3: ensure the newly Computed attribute 'remove_matches_from_default_stream'
+// is present in state (defaults to false) to avoid drift on migration/import across GL versions.
+func (r *streamResource) UpgradeState(ctx context.Context, req resource.UpgradeStateRequest, resp *resource.UpgradeStateResponse) {
+	var raw map[string]any
+	diags := req.State.GetAttribute(ctx, path.Empty(), &raw)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	if raw == nil {
+		raw = map[string]any{}
+	}
+	if _, ok := raw["remove_matches_from_default_stream"]; !ok {
+		raw["remove_matches_from_default_stream"] = false
+	}
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Empty(), raw)...)
 }
 
 func (r *streamResource) Configure(_ context.Context, req resource.ConfigureRequest, _ *resource.ConfigureResponse) {
@@ -103,17 +133,26 @@ func (r *streamResource) Create(ctx context.Context, req resource.CreateRequest,
 	ctx, cancel := context.WithTimeout(ctx, createTimeout)
 	defer cancel()
 
+	// If remove_matches_from_default_stream is not set, use false as default
+	removeMatches := false
+	if !data.RemoveMatchesFromDefault.IsNull() && !data.RemoveMatchesFromDefault.IsUnknown() {
+		removeMatches = data.RemoveMatchesFromDefault.ValueBool()
+	}
+
 	created, err := r.client.WithContext(ctx).CreateStream(&client.Stream{
-		Title:       data.Title.ValueString(),
-		Description: data.Description.ValueString(),
-		Disabled:    data.Disabled.ValueBool(),
-		IndexSetID:  data.IndexSetID.ValueString(),
+		Title:                          data.Title.ValueString(),
+		Description:                    data.Description.ValueString(),
+		Disabled:                       data.Disabled.ValueBool(),
+		IndexSetID:                     data.IndexSetID.ValueString(),
+		RemoveMatchesFromDefaultStream: removeMatches,
 	})
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating stream", err.Error())
 		return
 	}
 	data.ID = types.StringValue(created.ID)
+	// Read back actual values from API to ensure all computed fields are populated
+	data.RemoveMatchesFromDefault = types.BoolValue(created.RemoveMatchesFromDefaultStream)
 	// Create rules if provided via dedicated API
 	for i, rr := range data.Rules {
 		rule := &client.StreamRule{
@@ -183,6 +222,7 @@ func (r *streamResource) Read(ctx context.Context, req resource.ReadRequest, res
 	data.Description = types.StringValue(s.Description)
 	data.Disabled = types.BoolValue(s.Disabled)
 	data.IndexSetID = types.StringValue(s.IndexSetID)
+	data.RemoveMatchesFromDefault = types.BoolValue(s.RemoveMatchesFromDefaultStream)
 	// Read stream rules via API
 	if rules, err := r.client.WithContext(ctx).ListStreamRules(data.ID.ValueString()); err == nil {
 		out := make([]streamRuleModel, 0, len(rules))
@@ -206,14 +246,14 @@ func (r *streamResource) Read(ctx context.Context, req resource.ReadRequest, res
 func (r *streamResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
 	var plan streamModel
 	var state streamModel
-	// Для корректного обновления используем ID из state (в Plan он обычно отсутствует)
+	// Use ID from state for updates (often absent in plan)
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	// Runtime validation (по плану)
+	// Runtime validation (based on plan)
 	resp.Diagnostics.Append(validateStream(&plan)...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -229,11 +269,19 @@ func (r *streamResource) Update(ctx context.Context, req resource.UpdateRequest,
 	defer cancel()
 
 	streamID := state.ID.ValueString()
+
+	// If remove_matches_from_default_stream is not set in plan, preserve from state
+	removeMatches := state.RemoveMatchesFromDefault.ValueBool()
+	if !plan.RemoveMatchesFromDefault.IsNull() && !plan.RemoveMatchesFromDefault.IsUnknown() {
+		removeMatches = plan.RemoveMatchesFromDefault.ValueBool()
+	}
+
 	_, err := r.client.WithContext(ctx).UpdateStream(streamID, &client.Stream{
-		Title:       plan.Title.ValueString(),
-		Description: plan.Description.ValueString(),
-		Disabled:    plan.Disabled.ValueBool(),
-		IndexSetID:  plan.IndexSetID.ValueString(),
+		Title:                          plan.Title.ValueString(),
+		Description:                    plan.Description.ValueString(),
+		Disabled:                       plan.Disabled.ValueBool(),
+		IndexSetID:                     plan.IndexSetID.ValueString(),
+		RemoveMatchesFromDefaultStream: removeMatches,
 	})
 	if err != nil {
 		resp.Diagnostics.AddError("Error updating stream", err.Error())
@@ -297,8 +345,10 @@ func (r *streamResource) Update(ctx context.Context, req resource.UpdateRequest,
 			plan.Rules[i].ID = types.StringValue(cr.ID)
 		}
 	}
-	// Обновим состояние: ID берём из state, прочие поля — из плана
+	// Update state: keep ID from state; other fields come from the plan
 	plan.ID = types.StringValue(streamID)
+	// Ensure remove_matches_from_default_stream is set to the actual value used
+	plan.RemoveMatchesFromDefault = types.BoolValue(removeMatches)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
