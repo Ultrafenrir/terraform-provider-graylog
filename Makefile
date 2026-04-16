@@ -93,6 +93,10 @@ test-acc:
 # Run acceptance tests against a real Graylog started by docker-compose
 test-acc-integration: graylog-up graylog-wait
 	@echo "Running acceptance tests (TF_ACC=1) against docker-compose Graylog..."
+	@echo "[acc] Forcing compose bring-up + wait explicitly..."
+	@$(MAKE) GRAYLOG_VERSION=$(GRAYLOG_VERSION) graylog-up
+	@$(MAKE) graylog-wait
+	@bash -lc 'if command -v docker-compose >/dev/null 2>&1; then DC="docker-compose"; else DC="docker compose"; fi; $$DC ps || true'
 	@bash -c '\
 	  set -e; \
 	  GL_BASIC=$$(printf "admin:admin" | base64); \
@@ -101,6 +105,8 @@ test-acc-integration: graylog-up graylog-wait
 	  export ENABLE_OS_SNAPSHOT_ACC="$${ENABLE_OS_SNAPSHOT_ACC:-1}"; \
 	  export ENABLE_OS_S3_ACC="$${ENABLE_OS_S3_ACC:-1}"; \
 	  export ENABLE_LDAP_ACC="$${ENABLE_LDAP_ACC:-1}"; \
+	  TF_PATH=$$(command -v terraform || true); \
+	  export TF_ACC_TERRAFORM_PATH="$${TF_ACC_TERRAFORM_PATH:-$$TF_PATH}"; \
 	  TF_ACC=1 go test -v -tags=acceptance -run "^TestAcc" -timeout $(TIMEOUT) ./internal/provider'; \
 	status=$$?; \
 	$(MAKE) graylog-down; \
@@ -110,20 +116,25 @@ test-acc-integration: graylog-up graylog-wait
 .PHONY: graylog-clean
 graylog-clean:
 	@echo "Cleaning up any leftover compose resources..."
-	@docker compose down -v --remove-orphans || true
+	@bash -lc 'set -e; \
+	  if command -v docker-compose >/dev/null 2>&1; then DC="docker-compose"; else DC="docker compose"; fi; \
+	  echo "Using $$DC for compose (clean)"; \
+	  $$DC down -v --remove-orphans || true'
 
 # Override graylog-up to depend on cleanup first
 .PHONY: graylog-up
 graylog-up: graylog-clean
 	@echo "Starting Graylog stack via docker-compose..."
-	@bash -c 'set -e; \
+	@bash -lc 'set -e; \
+	  if command -v docker-compose >/dev/null 2>&1; then DC="docker-compose"; else DC="docker compose"; fi; \
 	  mongo="$${MONGO_TAG:-7.0}"; \
 	  os="$${OPENSEARCH_TAG:-2.17.1}"; \
 	  echo Using MongoDB $$mongo and OpenSearch $$os for Graylog $(GRAYLOG_VERSION); \
+	  echo "Using $$DC for compose (up)"; \
 	  # Ensure OpenSearch snapshots directory exists and is writable by container user \
 	  mkdir -p ./compose/os_snapshots; \
 	  chmod -R 0777 ./compose/os_snapshots || true; \
-	  MONGO_TAG="$$mongo" OPENSEARCH_TAG="$$os" GRAYLOG_VERSION="$(GRAYLOG_VERSION)" docker compose up -d --remove-orphans'
+	  MONGO_TAG="$$mongo" OPENSEARCH_TAG="$$os" GRAYLOG_VERSION="$(GRAYLOG_VERSION)" $$DC up -d --remove-orphans'
 
 # Run acceptance tests once for the current GRAYLOG_VERSION
 test-acc-one:
@@ -151,67 +162,74 @@ test: lint
 	fi
 
 # ---------- Graylog via docker-compose ----------
-graylog-up:
-	@echo "Starting Graylog stack via docker-compose..."
-	@bash -c 'set -e; \
-	  mongo="$${MONGO_TAG:-7.0}"; \
-	  os="$${OPENSEARCH_TAG:-2.17.1}"; \
-	  echo Using MongoDB $$mongo and OpenSearch $$os for Graylog $(GRAYLOG_VERSION); \
-	  # Ensure OpenSearch snapshots directory exists and is writable by container user \
-	  mkdir -p ./compose/os_snapshots; \
-	  chmod -R 0777 ./compose/os_snapshots || true; \
-	  MONGO_TAG="$$mongo" OPENSEARCH_TAG="$$os" GRAYLOG_VERSION="$(GRAYLOG_VERSION)" docker compose up -d --remove-orphans'
 
 # Recreate ONLY the Graylog service (keep Mongo/OpenSearch running)
 graylog-up-graylog:
 	@echo "Recreating only Graylog service (keeping Mongo/OpenSearch)..."
-	@bash -c 'set -e; \
+	@bash -lc 'set -e; \
+	  if command -v docker-compose >/dev/null 2>&1; then DC="docker-compose"; else DC="docker compose"; fi; \
 	  mongo="$${MONGO_TAG:-7.0}"; \
 	  os="$${OPENSEARCH_TAG:-2.17.1}"; \
 	  echo Using MongoDB $$mongo and OpenSearch $$os; \
-	  MONGO_TAG="$$mongo" OPENSEARCH_TAG="$$os" GRAYLOG_VERSION="$(GRAYLOG_VERSION)" docker compose up -d --no-deps --force-recreate graylog'
+	  echo "Using $$DC for compose (recreate graylog)"; \
+	  MONGO_TAG="$$mongo" OPENSEARCH_TAG="$$os" GRAYLOG_VERSION="$(GRAYLOG_VERSION)" $$DC up -d --no-deps --force-recreate graylog'
 
 graylog-down:
 	@echo "Stopping and removing Graylog stack..."
-	docker compose down -v
+	@bash -lc 'set -e; \
+	  if command -v docker-compose >/dev/null 2>&1; then DC="docker-compose"; else DC="docker compose"; fi; \
+	  echo "Using $$DC for compose (down)"; \
+	  $$DC down -v'
 
 graylog-stop:
 	@echo "Stopping Graylog stack (preserving volumes)..."
-	docker compose stop
+	@bash -lc 'set -e; \
+	  if command -v docker-compose >/dev/null 2>&1; then DC="docker-compose"; else DC="docker compose"; fi; \
+	  echo "Using $$DC for compose (stop)"; \
+	  $$DC stop'
 
 graylog-logs:
 	@echo "Graylog logs:"
-	docker compose logs -f graylog
+	@bash -lc 'set -e; \
+	  if command -v docker-compose >/dev/null 2>&1; then DC="docker-compose"; else DC="docker compose"; fi; \
+	  $$DC logs -f graylog'
 
 # Show docker compose services status
 graylog-ps:
 	@echo "Docker compose services status:"
-	docker compose ps
+	@bash -lc 'set -e; \
+	  if command -v docker-compose >/dev/null 2>&1; then DC="docker-compose"; else DC="docker compose"; fi; \
+	  $$DC ps'
 
 # Wait until API is available (200 or 401 on /api/system)
 graylog-wait:
-	@echo "Waiting for Graylog readiness (max ~30s)..."
+	@echo "Waiting for Graylog readiness (max ~180s)..."
 	@bash -lc 'set -e; \
-	  cid=$$(docker compose ps -q graylog || true); \
-	  for i in $$(seq 1 15); do \
+	  if command -v docker-compose >/dev/null 2>&1; then DC="docker-compose"; else DC="docker compose"; fi; \
+	  cid=$$($$DC ps -q graylog || true); \
+	  for i in $$(seq 1 60); do \
 	    code=$$(curl -sk -o /dev/null -w "%{http_code}" http://127.0.0.1:9000/api/system || true); \
 	    health="unknown"; \
 	    if [ -n "$$cid" ]; then \
 	      health=$$(docker inspect -f "{{.State.Health.Status}}" $$cid 2>/dev/null || echo unknown); \
 	    fi; \
 	    if [ "$$code" = "200" ] || [ "$$code" = "401" ]; then \
-	      echo "Graylog is ready (HTTP $$code, health=$$health)"; exit 0; \
+	      echo "Graylog is ready (HTTP $$code, health=$$health). Settling 3s..."; sleep 3; exit 0; \
 	    fi; \
-	    echo "Waiting... attempt $$i (HTTP=$$code, health=$$health)"; sleep 2; \
+	    echo "Waiting... attempt $$i (HTTP=$$code, health=$$health)"; sleep 3; \
 	  done; \
-	  echo "Graylog did not become ready in ~30s. Dumping docker status/logs..."; \
-	  docker compose ps || true; \
-	  docker compose logs --tail=200 graylog || true; \
+	  echo "Graylog did not become ready in ~180s. Dumping docker status/logs..."; \
+	  $$DC ps || true; \
+	  $$DC logs --tail=200 graylog || true; \
 	  exit 1'
 
 # Integration tests with a real Graylog
 test-integration: graylog-up graylog-wait
 	@echo "Running integration tests..."
+	@echo "[int] Forcing compose bring-up + wait explicitly..."
+	@$(MAKE) GRAYLOG_VERSION=$(GRAYLOG_VERSION) graylog-up
+	@$(MAKE) graylog-wait
+	@bash -lc 'if command -v docker-compose >/dev/null 2>&1; then DC="docker-compose"; else DC="docker compose"; fi; $$DC ps || true'
 	@# Basic auth admin:admin in base64
 	@bash -lc '\
 	  set -euo pipefail; set -x; \

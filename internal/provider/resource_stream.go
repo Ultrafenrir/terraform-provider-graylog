@@ -49,7 +49,7 @@ func (r *streamResource) Metadata(_ context.Context, _ resource.MetadataRequest,
 
 func (r *streamResource) Schema(ctx context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Version:     2,
+		Version:     3,
 		Description: "Manages a Graylog stream resource. Compatible with Graylog v5, v6, and v7.",
 		Attributes: map[string]schema.Attribute{
 			"id":           schema.StringAttribute{Computed: true, Description: "The unique identifier of the stream"},
@@ -83,6 +83,25 @@ func (r *streamResource) Schema(ctx context.Context, _ resource.SchemaRequest, r
 			},
 		},
 	}
+}
+
+// UpgradeState migrates prior state versions to the latest schema version.
+// v2 -> v3: ensure the newly Computed attribute 'remove_matches_from_default_stream'
+// is present in state (defaults to false) to avoid drift on migration/import across GL versions.
+func (r *streamResource) UpgradeState(ctx context.Context, req resource.UpgradeStateRequest, resp *resource.UpgradeStateResponse) {
+	var raw map[string]any
+	diags := req.State.GetAttribute(ctx, path.Empty(), &raw)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	if raw == nil {
+		raw = map[string]any{}
+	}
+	if _, ok := raw["remove_matches_from_default_stream"]; !ok {
+		raw["remove_matches_from_default_stream"] = false
+	}
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Empty(), raw)...)
 }
 
 func (r *streamResource) Configure(_ context.Context, req resource.ConfigureRequest, _ *resource.ConfigureResponse) {
