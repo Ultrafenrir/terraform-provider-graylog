@@ -422,6 +422,18 @@ func (c *Client) doRequest(method, path string, body any) ([]byte, error) {
 		}
 		defer resp.Body.Close()
 
+		// Opportunistically detect and cache Graylog API version from response headers
+		if v := resp.Header.Get("X-Graylog-Version"); v != "" {
+			switch {
+			case strings.HasPrefix(v, "7."):
+				c.APIVersion = APIV7
+			case strings.HasPrefix(v, "6."):
+				c.APIVersion = APIV6
+			default:
+				c.APIVersion = APIV5
+			}
+		}
+
 		// 404 - resource not found, don't retry
 		if resp.StatusCode == 404 {
 			c.logger.Info(ctx, "http_response",
@@ -439,6 +451,9 @@ func (c *Client) doRequest(method, path string, body any) ([]byte, error) {
 		b, err := io.ReadAll(resp.Body)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read response body: %w", err)
+		}
+		if os.Getenv("DEBUG_HTTP") == "1" {
+			fmt.Fprintf(os.Stderr, "RESP %s %s [%d]: %s\n", method, path, resp.StatusCode, string(b))
 		}
 
 		// Check if we should retry
@@ -1892,12 +1907,20 @@ func (c *Client) UpdateIndexSet(id string, is *IndexSet) (*IndexSet, error) {
 		if shards <= 0 {
 			shards = 1
 		}
+		// GL7 entity-style updates often require explicit id and writable/isWritable
+		// Provide safe defaults if unknown
+		isWritable := is.IsWritable
+		if !isWritable {
+			// default to true to keep index set writable unless explicitly disabled
+			isWritable = true
+		}
 		idxOptDisabled := is.IndexOptimizationDisabled
 		if !idxOptDisabled {
 			// На части сборок GL7 требуется явный флаг, отправляем true по умолчанию
 			idxOptDisabled = true
 		}
 		body = map[string]any{
+			"id":                                  id,
 			"title":                               is.Title,
 			"description":                         is.Description,
 			"shards":                              shards,
@@ -1906,6 +1929,7 @@ func (c *Client) UpdateIndexSet(id string, is *IndexSet) (*IndexSet, error) {
 			"field_type_refresh_interval":         is.FieldTypeRefreshInterval,
 			"index_optimization_max_num_segments": is.IndexOptimizationMaxNumSegments,
 			"index_optimization_disabled":         idxOptDisabled,
+			"writable":                            isWritable,
 			"rotation_strategy_class":             rotClass,
 			"rotation_strategy":                   rotCfg,
 			"retention_strategy_class":            retClass,
@@ -1950,6 +1974,60 @@ func (c *Client) UpdateIndexSet(id string, is *IndexSet) (*IndexSet, error) {
 			var o IndexSet
 			_ = json.Unmarshal(r, &o)
 			return &o, nil
+		}
+		// If GL7 requires entity-like payload (id + writable), retry with enriched body
+		if errors.As(err, &ge) && ge.Status == http.StatusBadRequest {
+			msg := strings.ToLower(ge.Message)
+			if strings.Contains(msg, "missing required properties") || strings.Contains(msg, "iswritable") {
+				// ensure basic knobs
+				shards := is.Shards
+				if shards <= 0 {
+					shards = 1
+				}
+				isWritable := is.IsWritable
+				if !isWritable {
+					isWritable = true
+				}
+				idxOptDisabled := is.IndexOptimizationDisabled
+				if !idxOptDisabled {
+					idxOptDisabled = true
+				}
+				bodyV7 := map[string]any{
+					"id":                                  id,
+					"title":                               is.Title,
+					"description":                         is.Description,
+					"shards":                              shards,
+					"replicas":                            is.Replicas,
+					"index_analyzer":                      is.IndexAnalyzer,
+					"field_type_refresh_interval":         is.FieldTypeRefreshInterval,
+					"index_optimization_max_num_segments": is.IndexOptimizationMaxNumSegments,
+					"index_optimization_disabled":         idxOptDisabled,
+					"writable":                            isWritable,
+					"rotation_strategy_class":             rotClass,
+					"rotation_strategy":                   rotCfg,
+					"retention_strategy_class":            retClass,
+					"retention_strategy":                  retCfg,
+				}
+				if o, e := try("PUT", path, bodyV7); e == nil {
+					return o, nil
+				}
+				if o, e := try("PATCH", path, bodyV7); e == nil {
+					return o, nil
+				}
+				if o, e := try("POST", path, bodyV7); e == nil {
+					return o, nil
+				}
+				legacy := fmt.Sprintf("/system/indices/index_sets/%s", id)
+				if o, e := try("PUT", legacy, bodyV7); e == nil {
+					return o, nil
+				}
+				if o, e := try("PATCH", legacy, bodyV7); e == nil {
+					return o, nil
+				}
+				if o, e := try("POST", legacy, bodyV7); e == nil {
+					return o, nil
+				}
+			}
 		}
 		// Trigger fallbacks on 405 or 404 (including sentinel ErrNotFound)
 		if (errors.As(err, &ge) && (ge.Status == http.StatusMethodNotAllowed || ge.Status == http.StatusNotFound)) || errors.Is(err, ErrNotFound) {
