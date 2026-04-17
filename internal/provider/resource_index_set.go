@@ -225,9 +225,7 @@ func (r *indexSetResource) Create(ctx context.Context, req resource.CreateReques
 	ctx, cancel := context.WithTimeout(ctx, createTimeout)
 	defer cancel()
 
-	// Remember whether user planned nested blocks to decide if we should materialize them in state
-	wantRotation := data.Rotation != nil && !data.Rotation.Class.IsNull() && !data.Rotation.Class.IsUnknown()
-	wantRetention := data.Retention != nil && !data.Retention.Class.IsNull() && !data.Retention.Class.IsUnknown()
+	// Note: optional nested blocks are intentionally not materialized in Create response
 
 	created, err := r.client.WithContext(ctx).CreateIndexSet(&client.IndexSet{
 		Title:                           data.Title.ValueString(),
@@ -275,13 +273,6 @@ func (r *indexSetResource) Create(ctx context.Context, req resource.CreateReques
 	}
 	if data.RetentionStrategy.IsUnknown() {
 		data.RetentionStrategy = types.StringNull()
-	}
-	// Do not materialize optional nested blocks if их не было в плане
-	if !wantRotation {
-		data.Rotation = nil
-	}
-	if !wantRetention {
-		data.Retention = nil
 	}
 	// Do not materialize nested blocks in Create response to avoid
 	// "unexpected new value" for optional blocks that were not planned
