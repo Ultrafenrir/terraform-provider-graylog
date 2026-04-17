@@ -283,6 +283,10 @@ func (r *indexSetResource) Create(ctx context.Context, req resource.CreateReques
 	if !wantRetention {
 		data.Retention = nil
 	}
+	// Do not materialize nested blocks in Create response to avoid
+	// "unexpected new value" for optional blocks that were not planned
+	data.Rotation = nil
+	data.Retention = nil
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
