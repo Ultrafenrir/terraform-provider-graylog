@@ -83,12 +83,12 @@ func (r *indexSetResource) Schema(ctx context.Context, _ resource.SchemaRequest,
 					int64validator.AtLeast(0),
 				},
 			},
-			"rotation_strategy":                   schema.StringAttribute{Optional: true, Description: "Index rotation strategy (e.g., count, size, time)"},
-			"retention_strategy":                  schema.StringAttribute{Optional: true, Description: "Index retention strategy (e.g., delete, close)"},
-			"index_analyzer":                      schema.StringAttribute{Optional: true, Description: "Elasticsearch analyzer to use"},
-			"field_type_refresh_interval":         schema.Int64Attribute{Optional: true, Description: "Field type refresh interval in milliseconds"},
-			"index_optimization_max_num_segments": schema.Int64Attribute{Optional: true, Description: "Max number of segments for index optimization (>=1)"},
-			"index_optimization_disabled":         schema.BoolAttribute{Optional: true, Description: "Disable index optimization"},
+			"rotation_strategy":                   schema.StringAttribute{Optional: true, Computed: true, Description: "Index rotation strategy (legacy/simple name). Prefer the 'rotation' block."},
+			"retention_strategy":                  schema.StringAttribute{Optional: true, Computed: true, Description: "Index retention strategy (legacy/simple name). Prefer the 'retention' block."},
+			"index_analyzer":                      schema.StringAttribute{Optional: true, Computed: true, Description: "Elasticsearch analyzer to use (defaults to 'standard')"},
+			"field_type_refresh_interval":         schema.Int64Attribute{Optional: true, Computed: true, Description: "Field type refresh interval in milliseconds (defaults to 5000)"},
+			"index_optimization_max_num_segments": schema.Int64Attribute{Optional: true, Computed: true, Description: "Max number of segments for index optimization (>=1, defaults to 1)"},
+			"index_optimization_disabled":         schema.BoolAttribute{Optional: true, Computed: true, Description: "Disable index optimization (defaults to false)"},
 			"default":                             schema.BoolAttribute{Optional: true, Computed: true, Description: "Whether this is the default index set"},
 			"timeouts":                            timeouts.Attributes(ctx, timeouts.Opts{Create: true, Update: true, Delete: true}),
 		},
@@ -277,15 +277,25 @@ func (r *indexSetResource) Read(ctx context.Context, req resource.ReadRequest, r
 	data.IndexPrefix = types.StringValue(is.IndexPrefix)
 	data.Shards = types.Int64Value(int64(is.Shards))
 	data.Replicas = types.Int64Value(int64(is.Replicas))
-	data.RotationStrategy = types.StringValue(is.RotationStrategy)
-	data.RetentionStrategy = types.StringValue(is.RetentionStrategy)
-	data.IndexAnalyzer = types.StringValue(is.IndexAnalyzer)
-	if is.FieldTypeRefreshInterval != 0 {
-		data.FieldTypeRefresh = types.Int64Value(int64(is.FieldTypeRefreshInterval))
+	// Legacy simple strategy names are not used anymore — keep them null to avoid drift
+	data.RotationStrategy = types.StringNull()
+	data.RetentionStrategy = types.StringNull()
+	// Normalize analyzer and numeric defaults to stable values to eliminate plan drift
+	analyzer := is.IndexAnalyzer
+	if analyzer == "" {
+		analyzer = "standard"
 	}
-	if is.IndexOptimizationMaxNumSegments != 0 {
-		data.IndexOptMaxSeg = types.Int64Value(int64(is.IndexOptimizationMaxNumSegments))
+	data.IndexAnalyzer = types.StringValue(analyzer)
+	ftri := is.FieldTypeRefreshInterval
+	if ftri == 0 {
+		ftri = 5000
 	}
+	data.FieldTypeRefresh = types.Int64Value(int64(ftri))
+	maxSeg := is.IndexOptimizationMaxNumSegments
+	if maxSeg == 0 {
+		maxSeg = 1
+	}
+	data.IndexOptMaxSeg = types.Int64Value(int64(maxSeg))
 	data.IndexOptDisabled = types.BoolValue(is.IndexOptimizationDisabled)
 	// Flatten rotation/retention blocks if present
 	if is.RotationStrategyClass != "" || len(is.RotationStrategyConfig) > 0 {

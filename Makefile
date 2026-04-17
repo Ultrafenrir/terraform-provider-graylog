@@ -1,5 +1,5 @@
 PLUGIN=terraform-provider-graylog
-VERSION=0.3.0
+VERSION=0.3.3
 # Graylog version without image prefix (e.g., 5.0, 6.0, 7.0)
 GRAYLOG_VERSION ?= 6.0
 COMPOSE_FILE := $(CURDIR)/docker-compose.yml

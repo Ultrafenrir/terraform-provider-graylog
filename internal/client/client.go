@@ -1682,6 +1682,17 @@ func (c *Client) CreateIndexSet(is *IndexSet) (*IndexSet, error) {
 			"max_docs_per_index": 20000000,
 		}
 	}
+	// If user supplied a config but forgot required discriminator 'type' — infer it from class
+	if rotCfg != nil {
+		if _, ok := rotCfg["type"]; !ok && rotClass != "" {
+			// Most Graylog strategies follow the convention: <...>Strategy -> <...>StrategyConfig
+			t := rotClass
+			if strings.HasSuffix(t, "Strategy") {
+				t = t + "Config"
+			}
+			rotCfg["type"] = t
+		}
+	}
 	if retClass == "" {
 		retClass = "org.graylog2.indexer.retention.strategies.DeletionRetentionStrategy"
 	}
@@ -1689,6 +1700,16 @@ func (c *Client) CreateIndexSet(is *IndexSet) (*IndexSet, error) {
 		retCfg = map[string]any{
 			"type":                  "org.graylog2.indexer.retention.strategies.DeletionRetentionStrategyConfig",
 			"max_number_of_indices": 20,
+		}
+	}
+	// If user supplied a retention config without 'type' — infer it from class
+	if retCfg != nil {
+		if _, ok := retCfg["type"]; !ok && retClass != "" {
+			t := retClass
+			if strings.HasSuffix(t, "Strategy") {
+				t = t + "Config"
+			}
+			retCfg["type"] = t
 		}
 	}
 
@@ -1821,6 +1842,16 @@ func (c *Client) UpdateIndexSet(id string, is *IndexSet) (*IndexSet, error) {
 			"max_docs_per_index": 20000000,
 		}
 	}
+	// If user supplied a config but forgot required discriminator 'type' — infer it from class
+	if rotCfg != nil {
+		if _, ok := rotCfg["type"]; !ok && rotClass != "" {
+			t := rotClass
+			if strings.HasSuffix(t, "Strategy") {
+				t = t + "Config"
+			}
+			rotCfg["type"] = t
+		}
+	}
 	if retClass == "" {
 		retClass = "org.graylog2.indexer.retention.strategies.DeletionRetentionStrategy"
 	}
@@ -1828,6 +1859,16 @@ func (c *Client) UpdateIndexSet(id string, is *IndexSet) (*IndexSet, error) {
 		retCfg = map[string]any{
 			"type":                  "org.graylog2.indexer.retention.strategies.DeletionRetentionStrategyConfig",
 			"max_number_of_indices": 20,
+		}
+	}
+	// If user supplied a retention config without 'type' — infer it from class
+	if retCfg != nil {
+		if _, ok := retCfg["type"]; !ok && retClass != "" {
+			t := retClass
+			if strings.HasSuffix(t, "Strategy") {
+				t = t + "Config"
+			}
+			retCfg["type"] = t
 		}
 	}
 
@@ -1902,6 +1943,34 @@ func (c *Client) UpdateIndexSet(id string, is *IndexSet) (*IndexSet, error) {
 
 	resp, err := c.doRequest("PUT", path, body)
 	if err != nil {
+		// Fallbacks for environments where PUT is not allowed or different base path is expected
+		var ge *GraylogError
+		// Helper to try a sequence of alternative requests
+		try := func(method, p string, b any) (*IndexSet, error) {
+			r, e := c.doRequest(method, p, b)
+			if e != nil {
+				return nil, e
+			}
+			var o IndexSet
+			_ = json.Unmarshal(r, &o)
+			return &o, nil
+		}
+		// Trigger fallbacks on 405 or 404 (including sentinel ErrNotFound)
+		if (errors.As(err, &ge) && (ge.Status == http.StatusMethodNotAllowed || ge.Status == http.StatusNotFound)) || errors.Is(err, ErrNotFound) {
+			// 1) Try POST on the same API path
+			if o, e := try("POST", path, body); e == nil {
+				return o, nil
+			}
+			// 2) Try legacy base without /api using PUT
+			legacy := fmt.Sprintf("/system/indices/index_sets/%s", id)
+			if o, e := try("PUT", legacy, body); e == nil {
+				return o, nil
+			}
+			// 3) Try POST on legacy base
+			if o, e := try("POST", legacy, body); e == nil {
+				return o, nil
+			}
+		}
 		return nil, err
 	}
 	var out IndexSet

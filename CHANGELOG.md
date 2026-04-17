@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.3.3 (2026-04-17)
+### Changed
+- Bump версии до 0.3.3 для публикации релиза (функциональных изменений по сравнению с 0.3.2 нет).
+
+## v0.3.2 (2026-04-17)
+### Fixed
+- Index Set update: added resilient fallback chain to avoid 405/404 across Graylog 5/6/7 (`PUT /api/system/indices/index_sets/{id}` → `POST` same path → legacy base `/system/...` with `PUT` → legacy with `POST`).
+- Eliminated Terraform plan drift for Index Set by normalizing server defaults in `Read` and marking stable attrs as `Computed`: `index_analyzer`=`standard`, `field_type_refresh_interval`=`5000`, `index_optimization_max_num_segments`=`1`, `index_optimization_disabled`=`false`; legacy `rotation_strategy`/`retention_strategy` kept `null` in state.
+- Index Set Create/Update: if `rotation.config`/`retention.config` is provided without discriminator `type`, it is inferred from the strategy class (suffix `Config`); safe defaults applied when configs are empty.
+- Streams: Update now falls back across methods `PUT→PATCH→POST`; Create first tries v7 entity payload and falls back to legacy body format when required.
+
+### Tests
+- Added unit tests for Index Set update fallbacks and config `type` inference; added unit tests for Stream Create/Update fallbacks. No skips in unit tests; integration tests guarded by build tags.
+
+### Notes
+- Backwards compatible. No HCL changes required. Intended to behave uniformly on Graylog 5.x, 6.x, and 7.x.
+
 ## v0.3.1 (2026-03-14)
 ### Documentation
 - Added comprehensive guides for production use:
