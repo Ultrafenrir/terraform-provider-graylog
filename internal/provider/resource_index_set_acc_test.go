@@ -13,9 +13,8 @@ func TestAccIndexSet_basic(t *testing.T) {
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				// Graylog sets several defaults; define them explicitly to avoid plan drift.
-				// Still, API may return nested strategy blocks on refresh; allow non-empty plan.
-				ExpectNonEmptyPlan: true,
+				// Graylog задаёт дефолты; мы их нормализуем на стороне провайдера,
+				// поэтому после рефреша ожидается пустой план (дрейфа нет).
 				Config: testAccProviderConfig() + `
 resource "graylog_index_set" "test" {
   title              = "acc-main-index"

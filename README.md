@@ -357,6 +357,25 @@ Useful commands:
 - `make graylog-logs` — follow Graylog service logs
 - `make graylog-down` — stop and remove the stack
 
+### Compose project name and cleanup
+
+- Тестовые таргеты больше не переопределяют `COMPOSE_PROJECT_NAME` — используется дефолтное имя проекта Docker Compose (имя каталога репозитория). Поэтому обычная команда ниже в корне репозитория корректно останавливает все сервисы, поднятые тестами/таргетами Makefile:
+
+  ```bash
+  docker-compose down -v
+  # или
+  docker compose down -v
+  ```
+
+- Если у вас остались «хвосты» от более старых прогонов с именем проекта `tf-graylog`, выполните:
+
+  ```bash
+  # Полная очистка для текущего дефолтного проекта и legacy-проекта tf-graylog
+  make graylog-clean
+  ```
+
+  Цель `graylog-clean` выполняет `down -v --remove-orphans` как для дефолтного имени проекта, так и с флагом `-p tf-graylog`.
+
 ### Acceptance tests (optional, opt‑in via ENV)
 
 Snapshot repositories against OpenSearch/MinIO:
