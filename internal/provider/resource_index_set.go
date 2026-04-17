@@ -272,45 +272,7 @@ func (r *indexSetResource) Read(ctx context.Context, req resource.ReadRequest, r
 		resp.Diagnostics.AddError("Error reading index set", err.Error())
 		return
 	}
-	data.Title = types.StringValue(is.Title)
-	data.Description = types.StringValue(is.Description)
-	data.IndexPrefix = types.StringValue(is.IndexPrefix)
-	data.Shards = types.Int64Value(int64(is.Shards))
-	data.Replicas = types.Int64Value(int64(is.Replicas))
-	// Legacy simple strategy names are not used anymore — keep them null to avoid drift
-	data.RotationStrategy = types.StringNull()
-	data.RetentionStrategy = types.StringNull()
-	// Normalize analyzer and numeric defaults to stable values to eliminate plan drift
-	analyzer := is.IndexAnalyzer
-	if analyzer == "" {
-		analyzer = "standard"
-	}
-	data.IndexAnalyzer = types.StringValue(analyzer)
-	ftri := is.FieldTypeRefreshInterval
-	if ftri == 0 {
-		ftri = 5000
-	}
-	data.FieldTypeRefresh = types.Int64Value(int64(ftri))
-	maxSeg := is.IndexOptimizationMaxNumSegments
-	if maxSeg == 0 {
-		maxSeg = 1
-	}
-	data.IndexOptMaxSeg = types.Int64Value(int64(maxSeg))
-	data.IndexOptDisabled = types.BoolValue(is.IndexOptimizationDisabled)
-	// Flatten rotation/retention blocks if present
-	if is.RotationStrategyClass != "" || len(is.RotationStrategyConfig) > 0 {
-		data.Rotation = &strategyModel{
-			Class:  types.StringValue(is.RotationStrategyClass),
-			Config: mapToStringMap(ctx, is.RotationStrategyConfig),
-		}
-	}
-	if is.RetentionStrategyClass != "" || len(is.RetentionStrategyConfig) > 0 {
-		data.Retention = &strategyModel{
-			Class:  types.StringValue(is.RetentionStrategyClass),
-			Config: mapToStringMap(ctx, is.RetentionStrategyConfig),
-		}
-	}
-	data.Default = types.BoolValue(is.Default)
+	applyIndexSetReadState(ctx, &data, is)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
@@ -417,6 +379,50 @@ func mapToStringMap(ctx context.Context, in map[string]any) types.Map {
 	}
 	mv, _ := types.MapValueFrom(ctx, types.StringType, flat)
 	return mv
+}
+
+// applyIndexSetReadState normalizes IndexSet read values and fills the Terraform state model
+// with stable defaults to avoid plan drift.
+func applyIndexSetReadState(ctx context.Context, data *indexSetModel, is *client.IndexSet) {
+	data.Title = types.StringValue(is.Title)
+	data.Description = types.StringValue(is.Description)
+	data.IndexPrefix = types.StringValue(is.IndexPrefix)
+	data.Shards = types.Int64Value(int64(is.Shards))
+	data.Replicas = types.Int64Value(int64(is.Replicas))
+	// Legacy simple strategy names are not used anymore — keep them null to avoid drift
+	data.RotationStrategy = types.StringNull()
+	data.RetentionStrategy = types.StringNull()
+	// Normalize analyzer and numeric defaults to stable values to eliminate plan drift
+	analyzer := is.IndexAnalyzer
+	if analyzer == "" {
+		analyzer = "standard"
+	}
+	data.IndexAnalyzer = types.StringValue(analyzer)
+	ftri := is.FieldTypeRefreshInterval
+	if ftri == 0 {
+		ftri = 5000
+	}
+	data.FieldTypeRefresh = types.Int64Value(int64(ftri))
+	maxSeg := is.IndexOptimizationMaxNumSegments
+	if maxSeg == 0 {
+		maxSeg = 1
+	}
+	data.IndexOptMaxSeg = types.Int64Value(int64(maxSeg))
+	data.IndexOptDisabled = types.BoolValue(is.IndexOptimizationDisabled)
+	// Flatten rotation/retention blocks if present
+	if is.RotationStrategyClass != "" || len(is.RotationStrategyConfig) > 0 {
+		data.Rotation = &strategyModel{
+			Class:  types.StringValue(is.RotationStrategyClass),
+			Config: mapToStringMap(ctx, is.RotationStrategyConfig),
+		}
+	}
+	if is.RetentionStrategyClass != "" || len(is.RetentionStrategyConfig) > 0 {
+		data.Retention = &strategyModel{
+			Class:  types.StringValue(is.RetentionStrategyClass),
+			Config: mapToStringMap(ctx, is.RetentionStrategyConfig),
+		}
+	}
+	data.Default = types.BoolValue(is.Default)
 }
 
 // validateIndexSet performs basic checks for key fields.
