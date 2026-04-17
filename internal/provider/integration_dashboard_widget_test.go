@@ -64,6 +64,14 @@ func TestIntegration_DashboardWidgetCRUD(t *testing.T) {
 	if _, err := c.UpdateDashboardWidget(dash.ID, got.ID, got); err != nil {
 		t.Fatalf("UpdateDashboardWidget error: %v", err)
 	}
+	// verify
+	after, err := c.GetDashboardWidget(dash.ID, got.ID)
+	if err != nil {
+		t.Fatalf("GetDashboardWidget after update error: %v", err)
+	}
+	if after.Description != "tf-itest widget upd" || after.CacheTime != 2 {
+		t.Fatalf("widget not updated as expected: %+v", after)
+	}
 
 	if err := c.DeleteDashboardWidget(dash.ID, w.ID); err != nil {
 		t.Fatalf("DeleteDashboardWidget error: %v", err)
