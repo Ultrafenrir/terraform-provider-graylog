@@ -264,6 +264,14 @@ func (r *indexSetResource) Create(ctx context.Context, req resource.CreateReques
 	}
 	data.ID = types.StringValue(is.ID)
 	applyIndexSetReadState(ctx, &data, is)
+	// Приводим legacy поля к известному значению: если они не заданы пользователем
+	// (unknown/null в плане), помечаем их явным null, чтобы избежать unknown после Apply.
+	if data.RotationStrategy.IsUnknown() {
+		data.RotationStrategy = types.StringNull()
+	}
+	if data.RetentionStrategy.IsUnknown() {
+		data.RetentionStrategy = types.StringNull()
+	}
 	// Do not materialize nested blocks in Create response to avoid
 	// "unexpected new value" for optional blocks that were not planned
 	data.Rotation = nil
@@ -347,6 +355,19 @@ func (r *indexSetResource) Update(ctx context.Context, req resource.UpdateReques
 		return
 	}
 	applyIndexSetReadState(ctx, &data, is)
+	// Приводим legacy поля к известному значению: если они были unknown в плане,
+	// явно выставляем null, чтобы исключить unknown после Apply.
+	if data.RotationStrategy.IsUnknown() {
+		data.RotationStrategy = types.StringNull()
+	}
+	if data.RetentionStrategy.IsUnknown() {
+		data.RetentionStrategy = types.StringNull()
+	}
+	// Не материализуем nested-блоки после Update, если их не было в плане,
+	// чтобы Terraform не считал их «неожиданным новым значением» сразу после Apply.
+	// Поведение выравниваем с Create/Read.
+	data.Rotation = nil
+	data.Retention = nil
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
