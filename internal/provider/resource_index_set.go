@@ -71,6 +71,7 @@ func (r *indexSetResource) Schema(ctx context.Context, _ resource.SchemaRequest,
 			},
 			"shards": schema.Int64Attribute{
 				Optional:    true,
+				Computed:    true,
 				Description: "Number of Elasticsearch shards (must be >= 0)",
 				Validators: []validator.Int64{
 					int64validator.AtLeast(0),
@@ -78,6 +79,7 @@ func (r *indexSetResource) Schema(ctx context.Context, _ resource.SchemaRequest,
 			},
 			"replicas": schema.Int64Attribute{
 				Optional:    true,
+				Computed:    true,
 				Description: "Number of Elasticsearch replicas (must be >= 0)",
 				Validators: []validator.Int64{
 					int64validator.AtLeast(0),
@@ -245,14 +247,27 @@ func (r *indexSetResource) Create(ctx context.Context, req resource.CreateReques
 		resp.Diagnostics.AddError("Error creating index set", err.Error())
 		return
 	}
-	data.ID = types.StringValue(created.ID)
-	// Ensure all computed values are known post-apply
-	// If API did not return Default explicitly, assume false
-	if created.Default {
-		data.Default = types.BoolValue(true)
-	} else {
-		data.Default = types.BoolValue(false)
+	// Refresh from API to ensure all Computed attributes are known after apply
+	is, rerr := r.client.WithContext(ctx).GetIndexSet(created.ID)
+	if rerr != nil {
+		// Fall back to minimal known state if immediate read fails
+		data.ID = types.StringValue(created.ID)
+		data.RotationStrategy = types.StringNull()
+		data.RetentionStrategy = types.StringNull()
+		if created.Default {
+			data.Default = types.BoolValue(true)
+		} else {
+			data.Default = types.BoolValue(false)
+		}
+		resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+		return
 	}
+	data.ID = types.StringValue(is.ID)
+	applyIndexSetReadState(ctx, &data, is)
+	// Do not materialize nested blocks in Create response to avoid
+	// "unexpected new value" for optional blocks that were not planned
+	data.Rotation = nil
+	data.Retention = nil
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
@@ -273,6 +288,9 @@ func (r *indexSetResource) Read(ctx context.Context, req resource.ReadRequest, r
 		return
 	}
 	applyIndexSetReadState(ctx, &data, is)
+	// Avoid introducing new nested blocks in Update response; keep absent
+	data.Rotation = nil
+	data.Retention = nil
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
@@ -319,6 +337,16 @@ func (r *indexSetResource) Update(ctx context.Context, req resource.UpdateReques
 		resp.Diagnostics.AddError("Error updating index set", err.Error())
 		return
 	}
+	// Re-read to normalize and ensure all Computed fields are known
+	is, rerr := r.client.WithContext(ctx).GetIndexSet(data.ID.ValueString())
+	if rerr != nil {
+		// At least make legacy fields known null to avoid unknowns
+		data.RotationStrategy = types.StringNull()
+		data.RetentionStrategy = types.StringNull()
+		resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+		return
+	}
+	applyIndexSetReadState(ctx, &data, is)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 

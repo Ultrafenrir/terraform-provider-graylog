@@ -122,7 +122,8 @@ graylog-clean:
 	  elif docker-compose version >/dev/null 2>&1; then COMPOSE_BIN="docker-compose"; COMPOSE_SUB=""; \
 	  else echo "No docker compose found" >&2; exit 127; fi; \
 	  echo "Using $$COMPOSE_BIN $$COMPOSE_SUB for compose (clean)"; \
-	  $$COMPOSE_BIN $$COMPOSE_SUB -f "$(COMPOSE_FILE)" down -v --remove-orphans || true'
+	  $$COMPOSE_BIN $$COMPOSE_SUB -f "$(COMPOSE_FILE)" down -v --remove-orphans || true; \
+	  $$COMPOSE_BIN $$COMPOSE_SUB -f "$(COMPOSE_FILE)" -p tf-graylog down -v --remove-orphans || true'
 
 # Override graylog-up to depend on cleanup first
 .PHONY: graylog-up
@@ -139,7 +140,6 @@ graylog-up: graylog-clean
 	  echo "Using $$COMPOSE_BIN $$COMPOSE_SUB for compose (up)"; \
 	  mkdir -p ./compose/os_snapshots; \
 	  chmod -R 0777 ./compose/os_snapshots || true; \
-	  export COMPOSE_PROJECT_NAME="$(COMPOSE_PROJECT_NAME)"; \
 	  MONGO_TAG="$$mongo" OPENSEARCH_TAG="$$os" GRAYLOG_VERSION="$$ver" $$COMPOSE_BIN $$COMPOSE_SUB -f "$(COMPOSE_FILE)" up -d --remove-orphans; \
 	  $$COMPOSE_BIN $$COMPOSE_SUB -f "$(COMPOSE_FILE)" ps; \
 	  $$COMPOSE_BIN $$COMPOSE_SUB -f "$(COMPOSE_FILE)" config 1>/dev/null'
@@ -183,7 +183,6 @@ graylog-up-graylog:
 	  os="$${OPENSEARCH_TAG:-2.17.1}"; \
 	  echo Using MongoDB $$mongo and OpenSearch $$os; \
 	  echo "Using $$COMPOSE_BIN $$COMPOSE_SUB for compose (recreate graylog)"; \
-	  export COMPOSE_PROJECT_NAME="$(COMPOSE_PROJECT_NAME)"; \
 	  MONGO_TAG="$$mongo" OPENSEARCH_TAG="$$os" GRAYLOG_VERSION="$$ver" $$COMPOSE_BIN $$COMPOSE_SUB -f "$(COMPOSE_FILE)" up -d --no-deps --force-recreate graylog; \
 	  $$COMPOSE_BIN $$COMPOSE_SUB -f "$(COMPOSE_FILE)" ps'
 
@@ -194,7 +193,8 @@ graylog-down:
 	  elif docker-compose version >/dev/null 2>&1; then COMPOSE_BIN="docker-compose"; COMPOSE_SUB=""; \
 	  else echo "No docker compose found" >&2; exit 127; fi; \
 	  echo "Using $$COMPOSE_BIN $$COMPOSE_SUB for compose (down)"; \
-	  $$COMPOSE_BIN $$COMPOSE_SUB -f "$(COMPOSE_FILE)" down -v'
+	  $$COMPOSE_BIN $$COMPOSE_SUB -f "$(COMPOSE_FILE)" down -v || true; \
+	  $$COMPOSE_BIN $$COMPOSE_SUB -f "$(COMPOSE_FILE)" -p tf-graylog down -v || true'
 
 graylog-stop:
 	@echo "Stopping Graylog stack (preserving volumes)..."
@@ -203,7 +203,8 @@ graylog-stop:
 	  elif docker-compose version >/dev/null 2>&1; then COMPOSE_BIN="docker-compose"; COMPOSE_SUB=""; \
 	  else echo "No docker compose found" >&2; exit 127; fi; \
 	  echo "Using $$COMPOSE_BIN $$COMPOSE_SUB for compose (stop)"; \
-	  $$COMPOSE_BIN $$COMPOSE_SUB -f "$(COMPOSE_FILE)" stop'
+	  $$COMPOSE_BIN $$COMPOSE_SUB -f "$(COMPOSE_FILE)" stop || true; \
+	  $$COMPOSE_BIN $$COMPOSE_SUB -f "$(COMPOSE_FILE)" -p tf-graylog stop || true'
 
 graylog-logs:
 	@echo "Graylog logs:"
