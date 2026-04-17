@@ -417,9 +417,9 @@ func applyIndexSetReadState(ctx context.Context, data *indexSetModel, is *client
 	data.IndexPrefix = types.StringValue(is.IndexPrefix)
 	data.Shards = types.Int64Value(int64(is.Shards))
 	data.Replicas = types.Int64Value(int64(is.Replicas))
-	// Legacy simple strategy names are not used anymore — keep them null to avoid drift
-	data.RotationStrategy = types.StringNull()
-	data.RetentionStrategy = types.StringNull()
+	// Не трогаем legacy-поля rotation_strategy/retention_strategy.
+	// Если пользователь задал их в плане, сохраняем прежнее значение в состоянии,
+	// чтобы Terraform не считал это «неожиданным новым значением» сразу после Apply.
 	// Normalize analyzer and numeric defaults to stable values to eliminate plan drift
 	analyzer := is.IndexAnalyzer
 	if analyzer == "" {
