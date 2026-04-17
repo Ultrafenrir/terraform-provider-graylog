@@ -225,6 +225,10 @@ func (r *indexSetResource) Create(ctx context.Context, req resource.CreateReques
 	ctx, cancel := context.WithTimeout(ctx, createTimeout)
 	defer cancel()
 
+	// Remember whether user planned nested blocks to decide if we should materialize them in state
+	wantRotation := data.Rotation != nil && !data.Rotation.Class.IsNull() && !data.Rotation.Class.IsUnknown()
+	wantRetention := data.Retention != nil && !data.Retention.Class.IsNull() && !data.Retention.Class.IsUnknown()
+
 	created, err := r.client.WithContext(ctx).CreateIndexSet(&client.IndexSet{
 		Title:                           data.Title.ValueString(),
 		Description:                     data.Description.ValueString(),
@@ -272,10 +276,13 @@ func (r *indexSetResource) Create(ctx context.Context, req resource.CreateReques
 	if data.RetentionStrategy.IsUnknown() {
 		data.RetentionStrategy = types.StringNull()
 	}
-	// Do not materialize nested blocks in Create response to avoid
-	// "unexpected new value" for optional blocks that were not planned
-	data.Rotation = nil
-	data.Retention = nil
+	// Do not materialize optional nested blocks if их не было в плане
+	if !wantRotation {
+		data.Rotation = nil
+	}
+	if !wantRetention {
+		data.Retention = nil
+	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
@@ -285,6 +292,9 @@ func (r *indexSetResource) Read(ctx context.Context, req resource.ReadRequest, r
 	if resp.Diagnostics.HasError() {
 		return
 	}
+	// Remember whether nested blocks were present in prior state to decide on materialization
+	hadRotation := data.Rotation != nil && !data.Rotation.Class.IsNull() && !data.Rotation.Class.IsUnknown()
+	hadRetention := data.Retention != nil && !data.Retention.Class.IsNull() && !data.Retention.Class.IsUnknown()
 	is, err := r.client.WithContext(ctx).GetIndexSet(data.ID.ValueString())
 	if err != nil {
 		if errors.Is(err, client.ErrNotFound) {
@@ -296,9 +306,13 @@ func (r *indexSetResource) Read(ctx context.Context, req resource.ReadRequest, r
 		return
 	}
 	applyIndexSetReadState(ctx, &data, is)
-	// Avoid introducing new nested blocks in Update response; keep absent
-	data.Rotation = nil
-	data.Retention = nil
+	// Avoid introducing new nested blocks if их не было ранее в состоянии
+	if !hadRotation {
+		data.Rotation = nil
+	}
+	if !hadRetention {
+		data.Retention = nil
+	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
@@ -322,6 +336,10 @@ func (r *indexSetResource) Update(ctx context.Context, req resource.UpdateReques
 	}
 	ctx, cancel := context.WithTimeout(ctx, updateTimeout)
 	defer cancel()
+
+	// Remember whether user planned nested blocks in this update
+	wantRotation := data.Rotation != nil && !data.Rotation.Class.IsNull() && !data.Rotation.Class.IsUnknown()
+	wantRetention := data.Retention != nil && !data.Retention.Class.IsNull() && !data.Retention.Class.IsUnknown()
 
 	_, err := r.client.WithContext(ctx).UpdateIndexSet(data.ID.ValueString(), &client.IndexSet{
 		Title:                           data.Title.ValueString(),
@@ -363,11 +381,13 @@ func (r *indexSetResource) Update(ctx context.Context, req resource.UpdateReques
 	if data.RetentionStrategy.IsUnknown() {
 		data.RetentionStrategy = types.StringNull()
 	}
-	// Не материализуем nested-блоки после Update, если их не было в плане,
-	// чтобы Terraform не считал их «неожиданным новым значением» сразу после Apply.
-	// Поведение выравниваем с Create/Read.
-	data.Rotation = nil
-	data.Retention = nil
+	// Не материализуем nested‑блоки после Update, если их не было в плане
+	if !wantRotation {
+		data.Rotation = nil
+	}
+	if !wantRetention {
+		data.Retention = nil
+	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 

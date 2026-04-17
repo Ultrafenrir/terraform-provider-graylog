@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.3.4 (2026-04-17)
+### Fixed
+- Index Set: исправлен апдейт для некоторых сборок GL 5/6/7 — в теле запроса теперь передаётся `shards` (с гарантией `>=1`), что устраняет `400 must be >= 1` и связанные `405` на альтернативных путях/методах.
+- Provider (index_set): nested‑блоки `rotation`/`retention` материализуются в состоянии только если они были заданы в плане/состоянии. Это устраняет дрейф и ошибки вида «unexpected new value» после Apply.
+
+### Tests
+- Интеграционные тесты: для каждого объекта добавлен обязательный шаг Update→GET→Verify (Index Set, Stream, Input, Pipeline, Dashboard, Dashboard Widget, Event Notification, User), прогон через `make test-integration-all` (GL 5/6/7) — PASS.
+- Acceptance: `make test-acc-all` — PASS.
+- Миграция 5→6→7: `make test-migration` — PASS.
+
+### Notes
+- Поведение выровнено для Graylog 5.x/6.x/7.x; без изменений HCL.
+
 ## v0.3.3 (2026-04-17)
 ### Changed
 - Bump версии до 0.3.3 для публикации релиза (функциональных изменений по сравнению с 0.3.2 нет).

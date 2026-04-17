@@ -1879,61 +1879,57 @@ func (c *Client) UpdateIndexSet(id string, is *IndexSet) (*IndexSet, error) {
 	case "", "delete", "deletion":
 	}
 
+	// Формируем минимальный idempotent payload только из изменяемых полей.
+	// Исключаем id/index_prefix/shards/writable/creation_date — они часто не апдейтабельны
+	// и в некоторых окружениях провоцируют 405/422.
 	var body any
 	if c.APIVersion == APIV7 {
-		// На практике обновление в 7.0 ожидает snake_case ключи, аналогично Create
 		if is.FieldTypeRefreshInterval == 0 {
 			is.FieldTypeRefreshInterval = 5000
 		}
+		// Some Graylog builds require 'shards' on update; ensure it's >=1
+		shards := is.Shards
+		if shards <= 0 {
+			shards = 1
+		}
 		idxOptDisabled := is.IndexOptimizationDisabled
 		if !idxOptDisabled {
+			// На части сборок GL7 требуется явный флаг, отправляем true по умолчанию
 			idxOptDisabled = true
 		}
-		isWritable := is.IsWritable
-		if !isWritable {
-			isWritable = true
-		}
 		body = map[string]any{
-			"id":                                  id,
 			"title":                               is.Title,
 			"description":                         is.Description,
-			"index_prefix":                        is.IndexPrefix,
-			"shards":                              max(1, is.Shards),
+			"shards":                              shards,
 			"replicas":                            is.Replicas,
 			"index_analyzer":                      is.IndexAnalyzer,
 			"field_type_refresh_interval":         is.FieldTypeRefreshInterval,
 			"index_optimization_max_num_segments": is.IndexOptimizationMaxNumSegments,
 			"index_optimization_disabled":         idxOptDisabled,
-			"writable":                            isWritable,
-			"creation_date":                       time.Now().UTC().Format(time.RFC3339Nano),
 			"rotation_strategy_class":             rotClass,
 			"rotation_strategy":                   rotCfg,
 			"retention_strategy_class":            retClass,
 			"retention_strategy":                  retCfg,
 		}
 	} else {
-		// legacy: используем snake_case map и включаем обязательные поля (id, replicas, writable)
+		// GL5/GL6: also require 'shards' to pass Min>=1 validation on some builds
+		shards := is.Shards
+		if shards <= 0 {
+			shards = 1
+		}
 		idxOptDisabled := is.IndexOptimizationDisabled
 		if !idxOptDisabled {
 			idxOptDisabled = true
 		}
-		isWritable := is.IsWritable
-		if !isWritable {
-			isWritable = true
-		}
 		body = map[string]any{
-			"id":                                  id,
 			"title":                               is.Title,
 			"description":                         is.Description,
-			"index_prefix":                        is.IndexPrefix,
-			"shards":                              max(1, is.Shards),
+			"shards":                              shards,
 			"replicas":                            is.Replicas,
 			"index_analyzer":                      is.IndexAnalyzer,
 			"field_type_refresh_interval":         is.FieldTypeRefreshInterval,
 			"index_optimization_max_num_segments": is.IndexOptimizationMaxNumSegments,
 			"index_optimization_disabled":         idxOptDisabled,
-			"writable":                            isWritable,
-			"creation_date":                       time.Now().UTC().Format(time.RFC3339Nano),
 			"rotation_strategy_class":             rotClass,
 			"rotation_strategy":                   rotCfg,
 			"retention_strategy_class":            retClass,
@@ -1957,16 +1953,24 @@ func (c *Client) UpdateIndexSet(id string, is *IndexSet) (*IndexSet, error) {
 		}
 		// Trigger fallbacks on 405 or 404 (including sentinel ErrNotFound)
 		if (errors.As(err, &ge) && (ge.Status == http.StatusMethodNotAllowed || ge.Status == http.StatusNotFound)) || errors.Is(err, ErrNotFound) {
-			// 1) Try POST on the same API path
+			// 1) Try PATCH on the same API path
+			if o, e := try("PATCH", path, body); e == nil {
+				return o, nil
+			}
+			// 2) Try POST on the same API path
 			if o, e := try("POST", path, body); e == nil {
 				return o, nil
 			}
-			// 2) Try legacy base without /api using PUT
+			// 3) Try legacy base without /api using PUT
 			legacy := fmt.Sprintf("/system/indices/index_sets/%s", id)
 			if o, e := try("PUT", legacy, body); e == nil {
 				return o, nil
 			}
-			// 3) Try POST on legacy base
+			// 4) Try PATCH on legacy base
+			if o, e := try("PATCH", legacy, body); e == nil {
+				return o, nil
+			}
+			// 5) Try POST on legacy base
 			if o, e := try("POST", legacy, body); e == nil {
 				return o, nil
 			}

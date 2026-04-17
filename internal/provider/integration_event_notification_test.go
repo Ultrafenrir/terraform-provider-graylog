@@ -54,6 +54,14 @@ func TestIntegration_EventNotificationCRUD(t *testing.T) {
 	if _, err := c.UpdateEventNotification(got.ID, got); err != nil {
 		t.Fatalf("update notification: %v", err)
 	}
+	// verify by fetching again
+	afterUpd, err := c.GetEventNotification(got.ID)
+	if err != nil {
+		t.Fatalf("read notification after update: %v", err)
+	}
+	if afterUpd.Description != "updated via test" {
+		t.Fatalf("notification not updated as expected: %+v", afterUpd)
+	}
 
 	// delete
 	if err := c.DeleteEventNotification(got.ID); err != nil {
