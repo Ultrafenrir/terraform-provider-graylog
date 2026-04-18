@@ -4,6 +4,7 @@
 ### Fixed
 - **CRITICAL**: Index Set Update: fixed 405 errors caused by provider's Update method reading ID from Plan instead of State. Computed fields like `id` are not present in the Plan, resulting in empty ID being passed to UpdateIndexSet.
 - **CRITICAL**: Index Set Update: fixed missing fields in IndexSet struct and implemented read-modify-write pattern. Added `writable`, `creation_date`, `can_be_default`, and `index_template_type` fields that are required by Graylog API.
+- **CRITICAL**: IndexSet struct: removed `omitempty` from `replicas` and `index_optimization_disabled` fields - Graylog 7.x requires these fields to be present in all requests. This fixes 400 errors "Missing required properties: replicas indexOptimizationDisabled".
 - **CRITICAL**: IndexSet struct: field `Writable` was not serialized to JSON (had `json:"-"` tag), causing incomplete PUT requests. Now properly serializes as `"writable"` field.
 - **CRITICAL**: Stream Update: removed incorrect method fallbacks (PATCH/POST) that caused 405 errors. Now correctly uses only PUT method on `/api/streams/{id}` endpoint.
 - Index Set Update: implemented read-modify-write pattern - GET current state, merge changes, PUT complete object. Graylog API requires all fields in PUT requests.

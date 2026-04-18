@@ -1556,7 +1556,7 @@ type IndexSet struct {
 	Description string `json:"description,omitempty"`
 	IndexPrefix string `json:"index_prefix"`
 	Shards      int    `json:"shards,omitempty"`
-	Replicas    int    `json:"replicas,omitempty"`
+	Replicas    int    `json:"replicas"` // Required by Graylog 7.x, removed omitempty
 	// Legacy simple names kept for backward compatibility in provider code.
 	// Graylog 5.x+ requires rotation_strategy_class and rotation/retention config objects.
 	// Do not marshal/unmarshal these legacy simple fields to avoid conflicts with full config objects.
@@ -1570,9 +1570,9 @@ type IndexSet struct {
 	IndexAnalyzer            string         `json:"index_analyzer,omitempty"`
 	FieldTypeRefreshInterval int            `json:"field_type_refresh_interval,omitempty"`
 	Default                  bool           `json:"default,omitempty"`
-	// Optimization-related settings can be required by some Graylog versions
+	// Optimization-related settings required by Graylog 7.x
 	IndexOptimizationMaxNumSegments int  `json:"index_optimization_max_num_segments,omitempty"`
-	IndexOptimizationDisabled       bool `json:"index_optimization_disabled,omitempty"`
+	IndexOptimizationDisabled       bool `json:"index_optimization_disabled"` // Required by Graylog 7.x, removed omitempty
 	// Additional fields required by Graylog API
 	Writable          bool   `json:"writable,omitempty"`
 	CreationDate      string `json:"creation_date,omitempty"`
@@ -1815,8 +1815,14 @@ func (c *Client) UpdateIndexSet(id string, is *IndexSet) (*IndexSet, error) {
 	}
 
 	// Обновляем только изменяемые поля из запроса
-	current.Title = is.Title
-	current.Description = is.Description
+	// Базовые поля, которые всегда обновляем
+	if is.Title != "" {
+		current.Title = is.Title
+	}
+	if is.Description != "" {
+		current.Description = is.Description
+	}
+	// Replicas - required field, always update
 	current.Replicas = is.Replicas
 
 	// Обновляем стратегии если они заданы
@@ -1843,6 +1849,7 @@ func (c *Client) UpdateIndexSet(id string, is *IndexSet) (*IndexSet, error) {
 	if is.IndexOptimizationMaxNumSegments > 0 {
 		current.IndexOptimizationMaxNumSegments = is.IndexOptimizationMaxNumSegments
 	}
+	// IndexOptimizationDisabled - булево поле, обновляем всегда из запроса
 	current.IndexOptimizationDisabled = is.IndexOptimizationDisabled
 
 	// Установка дефолтных значений для стратегий если они пустые
