@@ -2,6 +2,7 @@ package client
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -20,27 +21,63 @@ func newIdxTestClient(base string) *Client {
 	}
 }
 
-func TestUpdateIndexSet_FallbackPUTToPOST(t *testing.T) {
-	// Эмуляция API: первый PUT -> 405, затем POST на тот же путь -> 200 с JSON
+func TestUpdateIndexSet_SuccessfulPUT(t *testing.T) {
+	// Проверяем что UpdateIndexSet работает корректно с PUT запросом
 	path := "/api/system/indices/index_sets/abc"
-	var putCalled, postCalled bool
+	var getCalled, putCalled bool
+	var receivedBody map[string]any
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != path {
 			w.WriteHeader(404)
 			return
 		}
-		switch r.Method {
-		case http.MethodPut:
-			putCalled = true
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			_ = json.NewEncoder(w).Encode(map[string]any{"message": "method not allowed"})
-		case http.MethodPost:
-			postCalled = true
-			_ = json.NewEncoder(w).Encode(map[string]any{"id": "abc", "title": "T"})
-		default:
-			w.WriteHeader(405)
+
+		if r.Method == http.MethodGet {
+			getCalled = true
+			// Возвращаем текущее состояние объекта
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":                                  "abc",
+				"title":                               "Old Title",
+				"index_prefix":                        "p",
+				"shards":                              1,
+				"replicas":                            0,
+				"index_analyzer":                      "standard",
+				"field_type_refresh_interval":         5000,
+				"index_optimization_max_num_segments": 1,
+				"index_optimization_disabled":         false,
+				"rotation_strategy_class":             "org.graylog2.indexer.rotation.strategies.MessageCountRotationStrategy",
+				"rotation_strategy": map[string]any{
+					"type":               "org.graylog2.indexer.rotation.strategies.MessageCountRotationStrategyConfig",
+					"max_docs_per_index": 20000000,
+				},
+				"retention_strategy_class": "org.graylog2.indexer.retention.strategies.DeletionRetentionStrategy",
+				"retention_strategy": map[string]any{
+					"type":                  "org.graylog2.indexer.retention.strategies.DeletionRetentionStrategyConfig",
+					"max_number_of_indices": 20,
+				},
+			})
+			return
 		}
+
+		if r.Method == http.MethodPut {
+			putCalled = true
+			_ = json.NewDecoder(r.Body).Decode(&receivedBody)
+
+			// Проверяем что все необходимые поля присутствуют
+			if _, hasPrefix := receivedBody["index_prefix"]; !hasPrefix {
+				t.Error("body should contain 'index_prefix' field")
+			}
+			if _, hasShards := receivedBody["shards"]; !hasShards {
+				t.Error("body should contain 'shards' field")
+			}
+
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "abc", "title": receivedBody["title"]})
+			return
+		}
+
+		w.WriteHeader(405)
+		_ = json.NewEncoder(w).Encode(map[string]any{"message": "method not allowed"})
 	}))
 	defer ts.Close()
 
@@ -49,44 +86,59 @@ func TestUpdateIndexSet_FallbackPUTToPOST(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !putCalled || !postCalled {
-		t.Fatalf("expected PUT then POST fallbacks, got put=%v post=%v", putCalled, postCalled)
+	if !getCalled {
+		t.Fatal("expected GET to be called first")
+	}
+	if !putCalled {
+		t.Fatal("expected PUT to be called")
 	}
 }
 
-func TestUpdateIndexSet_FallbackToLegacyPath(t *testing.T) {
-	// Эмуляция: /api/... возвращает 404 на любые методы, а legacy /system/... принимает PUT
-	apiPath := "/api/system/indices/index_sets/idx"
-	legacyPath := "/system/indices/index_sets/idx"
-	var triedAPIpost, usedLegacyPut bool
+func TestUpdateIndexSet_ErrorOn405(t *testing.T) {
+	// Проверяем что 405 ошибка возвращается правильно
+	path := "/api/system/indices/index_sets/idx"
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case apiPath:
-			if r.Method == http.MethodPost {
-				triedAPIpost = true
-			}
+		if r.URL.Path != path {
 			w.WriteHeader(404)
-			_ = json.NewEncoder(w).Encode(map[string]any{"message": "not found"})
-		case legacyPath:
-			if r.Method == http.MethodPut {
-				usedLegacyPut = true
-				_ = json.NewEncoder(w).Encode(map[string]any{"id": "idx", "title": "X"})
-				return
-			}
-			w.WriteHeader(405)
-		default:
-			w.WriteHeader(404)
+			return
 		}
+
+		if r.Method == http.MethodGet {
+			// Возвращаем текущее состояние объекта
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":                                  "idx",
+				"title":                               "Old",
+				"index_prefix":                        "px",
+				"shards":                              1,
+				"replicas":                            0,
+				"index_analyzer":                      "standard",
+				"field_type_refresh_interval":         5000,
+				"index_optimization_max_num_segments": 1,
+				"index_optimization_disabled":         false,
+			})
+			return
+		}
+
+		// Для PUT всегда возвращаем 405
+		w.WriteHeader(405)
+		_ = json.NewEncoder(w).Encode(map[string]any{"message": "method not allowed"})
 	}))
 	defer ts.Close()
 
 	c := newIdxTestClient(ts.URL)
-	if _, err := c.UpdateIndexSet("idx", &IndexSet{Title: "X", IndexPrefix: "px"}); err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	_, err := c.UpdateIndexSet("idx", &IndexSet{Title: "X", IndexPrefix: "px"})
+	if err == nil {
+		t.Fatal("expected error on 405 response")
 	}
-	if !triedAPIpost || !usedLegacyPut {
-		t.Fatalf("expected POST /api... then PUT legacy, got apiPost=%v legacyPut=%v", triedAPIpost, usedLegacyPut)
+
+	// Проверяем что это действительно GraylogError с кодом 405
+	var ge *GraylogError
+	if !errors.As(err, &ge) {
+		t.Fatalf("expected GraylogError, got %T", err)
+	}
+	if ge.Status != 405 {
+		t.Errorf("expected status 405, got %d", ge.Status)
 	}
 }
 
@@ -97,6 +149,21 @@ func TestCreateUpdateIndexSet_ConfigTypeInference(t *testing.T) {
 		if r.Method == http.MethodPost && r.URL.Path == "/api/system/indices/index_sets" {
 			_ = json.NewDecoder(r.Body).Decode(&captured)
 			_ = json.NewEncoder(w).Encode(map[string]any{"id": "new"})
+			return
+		}
+		if r.Method == http.MethodGet && r.URL.Path == "/api/system/indices/index_sets/new" {
+			// Возвращаем текущее состояние объекта для Update
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":                                  "new",
+				"title":                               "T",
+				"index_prefix":                        "pref",
+				"shards":                              1,
+				"replicas":                            0,
+				"index_analyzer":                      "standard",
+				"field_type_refresh_interval":         5000,
+				"index_optimization_max_num_segments": 1,
+				"index_optimization_disabled":         false,
+			})
 			return
 		}
 		if r.Method == http.MethodPut && r.URL.Path == "/api/system/indices/index_sets/new" {

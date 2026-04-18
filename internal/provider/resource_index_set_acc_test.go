@@ -51,3 +51,48 @@ resource "graylog_index_set" "test" {
 		},
 	})
 }
+
+func TestAccIndexSet_update(t *testing.T) {
+	resource.ParallelTest(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccProviderConfig() + `
+resource "graylog_index_set" "test" {
+  title              = "acc-update-index"
+  index_prefix       = "acc-update"
+  description        = "Initial description"
+  shards             = 1
+  replicas           = 0
+  default            = false
+}
+`,
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttrSet("graylog_index_set.test", "id"),
+					resource.TestCheckResourceAttr("graylog_index_set.test", "title", "acc-update-index"),
+					resource.TestCheckResourceAttr("graylog_index_set.test", "description", "Initial description"),
+				),
+			},
+			{
+				// Test update - это должно использовать PUT без 405 ошибок
+				Config: testAccProviderConfig() + `
+resource "graylog_index_set" "test" {
+  title              = "acc-update-index-modified"
+  index_prefix       = "acc-update"
+  description        = "Updated description"
+  shards             = 1
+  replicas           = 1
+  default            = false
+}
+`,
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttrSet("graylog_index_set.test", "id"),
+					resource.TestCheckResourceAttr("graylog_index_set.test", "title", "acc-update-index-modified"),
+					resource.TestCheckResourceAttr("graylog_index_set.test", "description", "Updated description"),
+					resource.TestCheckResourceAttr("graylog_index_set.test", "replicas", "1"),
+				),
+			},
+		},
+	})
+}
