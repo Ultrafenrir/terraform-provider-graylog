@@ -856,61 +856,42 @@ func (c *Client) GetStream(id string) (*Stream, error) {
 }
 
 func (c *Client) UpdateStream(id string, s *Stream) (*Stream, error) {
-	// Unified path for all supported versions
+	// Graylog API для streams поддерживает только PUT метод на /api/streams/{id}
 	path := fmt.Sprintf("/api/streams/%s", id)
-	// Default matching type
+
 	matchingType := s.MatchingType
 	if matchingType == "" {
 		matchingType = "AND"
 	}
+
 	var body any = s
 	if c.APIVersion == APIV7 {
-		// v7 UpdateStreamRequest uses snake_case; there is no 'disabled' field
+		// v7 использует snake_case и не имеет поля 'disabled'
 		body = map[string]any{
-			"title":         s.Title,
-			"description":   s.Description,
-			"index_set_id":  s.IndexSetID,
-			"matching_type": matchingType,
-			// controlled behavior for removing from default stream
+			"title":                              s.Title,
+			"description":                        s.Description,
+			"index_set_id":                       s.IndexSetID,
+			"matching_type":                      matchingType,
 			"remove_matches_from_default_stream": s.RemoveMatchesFromDefaultStream,
 		}
 	}
-	// Try to perform update resilient to version/endpoint differences:
-	// 1) Primary attempt: PUT
-	// 2) If 405 Method Not Allowed — try PATCH
-	// 3) If 405 again — try POST (some proxies restrict methods)
-	var resp []byte
-	methods := []string{"PUT", "PATCH", "POST"}
-	for i, m := range methods {
-		r, e := c.doRequest(m, path, body)
-		if e == nil {
-			resp = r
-			break
-		}
-		// If error is not 405 (method), no point continuing
-		if ge, ok := e.(*GraylogError); ok {
-			if ge.Status == http.StatusMethodNotAllowed {
-				// try next method
-				if i+1 < len(methods) {
-					continue
-				}
-				// no more methods — return last error
-				return nil, e
-			}
-		}
-		// Different error — return immediately
-		return nil, e
+
+	resp, err := c.doRequest("PUT", path, body)
+	if err != nil {
+		return nil, err
 	}
+
 	var out Stream
 	_ = json.Unmarshal(resp, &out)
-	// For v7, if needed, synchronize disabled via /pause or /resume
+
+	// Для v7 управляем disabled через отдельные endpoints /pause и /resume
 	if c.APIVersion == APIV7 {
 		if s.Disabled {
 			_, _ = c.doRequest("POST", fmt.Sprintf("%s/pause", path), nil)
 		} else {
 			_, _ = c.doRequest("POST", fmt.Sprintf("%s/resume", path), nil)
 		}
-		// re-read current state to return up-to-date fields
+		// Перечитываем состояние для получения актуальных полей
 		got, gerr := c.GetStream(id)
 		if gerr == nil {
 			return got, nil
@@ -1575,7 +1556,7 @@ type IndexSet struct {
 	Description string `json:"description,omitempty"`
 	IndexPrefix string `json:"index_prefix"`
 	Shards      int    `json:"shards,omitempty"`
-	Replicas    int    `json:"replicas,omitempty"`
+	Replicas    int    `json:"replicas"` // Required by Graylog 7.x, removed omitempty
 	// Legacy simple names kept for backward compatibility in provider code.
 	// Graylog 5.x+ requires rotation_strategy_class and rotation/retention config objects.
 	// Do not marshal/unmarshal these legacy simple fields to avoid conflicts with full config objects.
@@ -1589,10 +1570,15 @@ type IndexSet struct {
 	IndexAnalyzer            string         `json:"index_analyzer,omitempty"`
 	FieldTypeRefreshInterval int            `json:"field_type_refresh_interval,omitempty"`
 	Default                  bool           `json:"default,omitempty"`
-	// Optimization-related settings can be required by some Graylog versions
+	// Optimization-related settings required by Graylog 7.x
 	IndexOptimizationMaxNumSegments int  `json:"index_optimization_max_num_segments,omitempty"`
-	IndexOptimizationDisabled       bool `json:"index_optimization_disabled,omitempty"`
-	// Graylog 7 expects explicit writability flag in requests; keep in model for parity
+	IndexOptimizationDisabled       bool `json:"index_optimization_disabled"` // Required by Graylog 7.x, removed omitempty
+	// Additional fields required by Graylog API
+	Writable          bool   `json:"writable,omitempty"`
+	CreationDate      string `json:"creation_date,omitempty"`
+	CanBeDefault      bool   `json:"can_be_default,omitempty"`
+	IndexTemplateType string `json:"index_template_type,omitempty"`
+	// Keep IsWritable for backward compatibility but don't serialize it
 	IsWritable bool `json:"-"`
 }
 
@@ -1818,241 +1804,109 @@ func (c *Client) GetIndexSet(id string) (*IndexSet, error) {
 }
 
 func (c *Client) UpdateIndexSet(id string, is *IndexSet) (*IndexSet, error) {
-	// Начиная с Graylog 5 API стабильно доступен под /api/system/indices/index_sets/{id}
+	// Graylog API для index sets требует PUT с полным телом объекта
+	// Сначала получаем текущее состояние, затем обновляем нужные поля
 	path := fmt.Sprintf("/api/system/indices/index_sets/%s", id)
-	// Mirror CreateIndexSet request shape; split by API version
-	type indexSetRequestLegacy struct {
-		Title                        string         `json:"title"`
-		Description                  string         `json:"description,omitempty"`
-		IndexPrefix                  string         `json:"index_prefix"`
-		Shards                       int            `json:"shards,omitempty"`
-		Replicas                     int            `json:"replicas,omitempty"`
-		IndexAnalyzer                string         `json:"index_analyzer,omitempty"`
-		FieldTypeRefreshInterval     int            `json:"field_type_refresh_interval,omitempty"`
-		Default                      bool           `json:"default,omitempty"`
-		IndexOptimizationMaxSegments int            `json:"index_optimization_max_num_segments,omitempty"`
-		IndexOptimizationDisabled    bool           `json:"index_optimization_disabled,omitempty"`
-		CreationDate                 string         `json:"creation_date,omitempty"`
-		RotationStrategyClass        string         `json:"rotation_strategy_class,omitempty"`
-		RotationStrategyCfg          map[string]any `json:"rotation_strategy,omitempty"`
-		RetentionStrategyClass       string         `json:"retention_strategy_class,omitempty"`
-		RetentionStrategyCfg         map[string]any `json:"retention_strategy,omitempty"`
-	}
-	type indexSetRequestV7 struct {
-		// Не используется: фактическая реализация отправляет snake_case
-		Title string `json:"title"`
+
+	// Получаем текущий объект из API
+	current, err := c.GetIndexSet(id)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get current index set before update: %w", err)
 	}
 
-	rotClass := is.RotationStrategyClass
-	rotCfg := is.RotationStrategyConfig
-	retClass := is.RetentionStrategyClass
-	retCfg := is.RetentionStrategyConfig
-
-	if rotClass == "" {
-		rotClass = "org.graylog2.indexer.rotation.strategies.MessageCountRotationStrategy"
+	// Обновляем только изменяемые поля из запроса
+	// Базовые поля, которые всегда обновляем
+	if is.Title != "" {
+		current.Title = is.Title
 	}
-	if rotCfg == nil || len(rotCfg) == 0 {
-		rotCfg = map[string]any{
+	if is.Description != "" {
+		current.Description = is.Description
+	}
+	// Replicas - required field, always update
+	current.Replicas = is.Replicas
+
+	// Обновляем стратегии если они заданы
+	if is.RotationStrategyClass != "" {
+		current.RotationStrategyClass = is.RotationStrategyClass
+	}
+	if is.RotationStrategyConfig != nil && len(is.RotationStrategyConfig) > 0 {
+		current.RotationStrategyConfig = is.RotationStrategyConfig
+	}
+	if is.RetentionStrategyClass != "" {
+		current.RetentionStrategyClass = is.RetentionStrategyClass
+	}
+	if is.RetentionStrategyConfig != nil && len(is.RetentionStrategyConfig) > 0 {
+		current.RetentionStrategyConfig = is.RetentionStrategyConfig
+	}
+
+	// Обновляем опциональные поля если они заданы
+	if is.IndexAnalyzer != "" {
+		current.IndexAnalyzer = is.IndexAnalyzer
+	}
+	if is.FieldTypeRefreshInterval > 0 {
+		current.FieldTypeRefreshInterval = is.FieldTypeRefreshInterval
+	}
+	if is.IndexOptimizationMaxNumSegments > 0 {
+		current.IndexOptimizationMaxNumSegments = is.IndexOptimizationMaxNumSegments
+	}
+	// IndexOptimizationDisabled - булево поле, обновляем всегда из запроса
+	current.IndexOptimizationDisabled = is.IndexOptimizationDisabled
+
+	// Установка дефолтных значений для стратегий если они пустые
+	if current.RotationStrategyClass == "" {
+		current.RotationStrategyClass = "org.graylog2.indexer.rotation.strategies.MessageCountRotationStrategy"
+	}
+	if current.RotationStrategyConfig == nil || len(current.RotationStrategyConfig) == 0 {
+		current.RotationStrategyConfig = map[string]any{
 			"type":               "org.graylog2.indexer.rotation.strategies.MessageCountRotationStrategyConfig",
 			"max_docs_per_index": 20000000,
 		}
 	}
-	// If user supplied a config but forgot required discriminator 'type' — infer it from class
-	if rotCfg != nil {
-		if _, ok := rotCfg["type"]; !ok && rotClass != "" {
-			t := rotClass
+	// Добавляем тип конфига если его нет
+	if current.RotationStrategyConfig != nil {
+		if _, ok := current.RotationStrategyConfig["type"]; !ok && current.RotationStrategyClass != "" {
+			t := current.RotationStrategyClass
 			if strings.HasSuffix(t, "Strategy") {
 				t = t + "Config"
 			}
-			rotCfg["type"] = t
+			current.RotationStrategyConfig["type"] = t
 		}
 	}
-	if retClass == "" {
-		retClass = "org.graylog2.indexer.retention.strategies.DeletionRetentionStrategy"
+
+	if current.RetentionStrategyClass == "" {
+		current.RetentionStrategyClass = "org.graylog2.indexer.retention.strategies.DeletionRetentionStrategy"
 	}
-	if retCfg == nil || len(retCfg) == 0 {
-		retCfg = map[string]any{
+	if current.RetentionStrategyConfig == nil || len(current.RetentionStrategyConfig) == 0 {
+		current.RetentionStrategyConfig = map[string]any{
 			"type":                  "org.graylog2.indexer.retention.strategies.DeletionRetentionStrategyConfig",
 			"max_number_of_indices": 20,
 		}
 	}
-	// If user supplied a retention config without 'type' — infer it from class
-	if retCfg != nil {
-		if _, ok := retCfg["type"]; !ok && retClass != "" {
-			t := retClass
+	if current.RetentionStrategyConfig != nil {
+		if _, ok := current.RetentionStrategyConfig["type"]; !ok && current.RetentionStrategyClass != "" {
+			t := current.RetentionStrategyClass
 			if strings.HasSuffix(t, "Strategy") {
 				t = t + "Config"
 			}
-			retCfg["type"] = t
+			current.RetentionStrategyConfig["type"] = t
 		}
 	}
 
-	switch strings.ToLower(is.RotationStrategy) {
-	case "", "count", "message_count", "messages":
+	// Нормализация значений по умолчанию
+	if current.FieldTypeRefreshInterval == 0 {
+		current.FieldTypeRefreshInterval = 5000
 	}
-	switch strings.ToLower(is.RetentionStrategy) {
-	case "", "delete", "deletion":
+	if current.IndexAnalyzer == "" {
+		current.IndexAnalyzer = "standard"
 	}
-
-	// Формируем минимальный idempotent payload только из изменяемых полей.
-	// Исключаем id/index_prefix/shards/writable/creation_date — они часто не апдейтабельны
-	// и в некоторых окружениях провоцируют 405/422.
-	var body any
-	if c.APIVersion == APIV7 {
-		if is.FieldTypeRefreshInterval == 0 {
-			is.FieldTypeRefreshInterval = 5000
-		}
-		// Some Graylog builds require 'shards' on update; ensure it's >=1
-		shards := is.Shards
-		if shards <= 0 {
-			shards = 1
-		}
-		// GL7 entity-style updates often require explicit id and writable/isWritable
-		// Provide safe defaults if unknown
-		isWritable := is.IsWritable
-		if !isWritable {
-			// default to true to keep index set writable unless explicitly disabled
-			isWritable = true
-		}
-		idxOptDisabled := is.IndexOptimizationDisabled
-		if !idxOptDisabled {
-			// На части сборок GL7 требуется явный флаг, отправляем true по умолчанию
-			idxOptDisabled = true
-		}
-		body = map[string]any{
-			"id":                                  id,
-			"title":                               is.Title,
-			"description":                         is.Description,
-			"shards":                              shards,
-			"replicas":                            is.Replicas,
-			"index_analyzer":                      is.IndexAnalyzer,
-			"field_type_refresh_interval":         is.FieldTypeRefreshInterval,
-			"index_optimization_max_num_segments": is.IndexOptimizationMaxNumSegments,
-			"index_optimization_disabled":         idxOptDisabled,
-			"writable":                            isWritable,
-			"rotation_strategy_class":             rotClass,
-			"rotation_strategy":                   rotCfg,
-			"retention_strategy_class":            retClass,
-			"retention_strategy":                  retCfg,
-		}
-	} else {
-		// GL5/GL6: also require 'shards' to pass Min>=1 validation on some builds
-		shards := is.Shards
-		if shards <= 0 {
-			shards = 1
-		}
-		idxOptDisabled := is.IndexOptimizationDisabled
-		if !idxOptDisabled {
-			idxOptDisabled = true
-		}
-		body = map[string]any{
-			"title":                               is.Title,
-			"description":                         is.Description,
-			"shards":                              shards,
-			"replicas":                            is.Replicas,
-			"index_analyzer":                      is.IndexAnalyzer,
-			"field_type_refresh_interval":         is.FieldTypeRefreshInterval,
-			"index_optimization_max_num_segments": is.IndexOptimizationMaxNumSegments,
-			"index_optimization_disabled":         idxOptDisabled,
-			"rotation_strategy_class":             rotClass,
-			"rotation_strategy":                   rotCfg,
-			"retention_strategy_class":            retClass,
-			"retention_strategy":                  retCfg,
-		}
+	if current.IndexOptimizationMaxNumSegments == 0 {
+		current.IndexOptimizationMaxNumSegments = 1
 	}
 
-	resp, err := c.doRequest("PUT", path, body)
+	// Формируем полное тело запроса со всеми полями
+	// Важно: используем текущий объект целиком для PUT
+	resp, err := c.doRequest("PUT", path, current)
 	if err != nil {
-		// Fallbacks for environments where PUT is not allowed or different base path is expected
-		var ge *GraylogError
-		// Helper to try a sequence of alternative requests
-		try := func(method, p string, b any) (*IndexSet, error) {
-			r, e := c.doRequest(method, p, b)
-			if e != nil {
-				return nil, e
-			}
-			var o IndexSet
-			_ = json.Unmarshal(r, &o)
-			return &o, nil
-		}
-		// If GL7 requires entity-like payload (id + writable), retry with enriched body
-		if errors.As(err, &ge) && ge.Status == http.StatusBadRequest {
-			msg := strings.ToLower(ge.Message)
-			if strings.Contains(msg, "missing required properties") || strings.Contains(msg, "iswritable") {
-				// ensure basic knobs
-				shards := is.Shards
-				if shards <= 0 {
-					shards = 1
-				}
-				isWritable := is.IsWritable
-				if !isWritable {
-					isWritable = true
-				}
-				idxOptDisabled := is.IndexOptimizationDisabled
-				if !idxOptDisabled {
-					idxOptDisabled = true
-				}
-				bodyV7 := map[string]any{
-					"id":                                  id,
-					"title":                               is.Title,
-					"description":                         is.Description,
-					"shards":                              shards,
-					"replicas":                            is.Replicas,
-					"index_analyzer":                      is.IndexAnalyzer,
-					"field_type_refresh_interval":         is.FieldTypeRefreshInterval,
-					"index_optimization_max_num_segments": is.IndexOptimizationMaxNumSegments,
-					"index_optimization_disabled":         idxOptDisabled,
-					"writable":                            isWritable,
-					"rotation_strategy_class":             rotClass,
-					"rotation_strategy":                   rotCfg,
-					"retention_strategy_class":            retClass,
-					"retention_strategy":                  retCfg,
-				}
-				if o, e := try("PUT", path, bodyV7); e == nil {
-					return o, nil
-				}
-				if o, e := try("PATCH", path, bodyV7); e == nil {
-					return o, nil
-				}
-				if o, e := try("POST", path, bodyV7); e == nil {
-					return o, nil
-				}
-				legacy := fmt.Sprintf("/system/indices/index_sets/%s", id)
-				if o, e := try("PUT", legacy, bodyV7); e == nil {
-					return o, nil
-				}
-				if o, e := try("PATCH", legacy, bodyV7); e == nil {
-					return o, nil
-				}
-				if o, e := try("POST", legacy, bodyV7); e == nil {
-					return o, nil
-				}
-			}
-		}
-		// Trigger fallbacks on 405 or 404 (including sentinel ErrNotFound)
-		if (errors.As(err, &ge) && (ge.Status == http.StatusMethodNotAllowed || ge.Status == http.StatusNotFound)) || errors.Is(err, ErrNotFound) {
-			// 1) Try PATCH on the same API path
-			if o, e := try("PATCH", path, body); e == nil {
-				return o, nil
-			}
-			// 2) Try POST on the same API path
-			if o, e := try("POST", path, body); e == nil {
-				return o, nil
-			}
-			// 3) Try legacy base without /api using PUT
-			legacy := fmt.Sprintf("/system/indices/index_sets/%s", id)
-			if o, e := try("PUT", legacy, body); e == nil {
-				return o, nil
-			}
-			// 4) Try PATCH on legacy base
-			if o, e := try("PATCH", legacy, body); e == nil {
-				return o, nil
-			}
-			// 5) Try POST on legacy base
-			if o, e := try("POST", legacy, body); e == nil {
-				return o, nil
-			}
-		}
 		return nil, err
 	}
 	var out IndexSet

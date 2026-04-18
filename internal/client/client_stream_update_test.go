@@ -19,45 +19,66 @@ func newStreamTestClient(base string) *Client {
 	}
 }
 
-func TestUpdateStream_MethodFallbacks(t *testing.T) {
+func TestUpdateStream_SuccessfulPUT(t *testing.T) {
 	path := "/api/streams/str1"
-	calls := []string{}
+	var putCalled bool
+
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != path {
 			w.WriteHeader(404)
 			return
 		}
-		calls = append(calls, r.Method)
-		switch r.Method {
-		case http.MethodPut, http.MethodPatch:
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			_ = json.NewEncoder(w).Encode(map[string]any{"message": "method not allowed"})
-		case http.MethodPost:
-			_ = json.NewEncoder(w).Encode(map[string]any{"id": "str1", "title": "after"})
-		default:
+		if r.Method != http.MethodPut {
 			w.WriteHeader(405)
+			_ = json.NewEncoder(w).Encode(map[string]any{"message": "method not allowed"})
+			return
 		}
+		putCalled = true
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": "str1", "title": "updated"})
 	}))
 	defer ts.Close()
 
 	c := newStreamTestClient(ts.URL)
-	s := &Stream{Title: "before"}
+	s := &Stream{Title: "updated"}
 	out, err := c.UpdateStream("str1", s)
 	if err != nil {
-		t.Fatalf("UpdateStream: %v", err)
+		t.Fatalf("UpdateStream error: %v", err)
 	}
-	if out.ID != "str1" || out.Title != "after" {
-		t.Fatalf("unexpected out: %+v", out)
+	if !putCalled {
+		t.Fatal("expected PUT to be called")
 	}
-	// допускаем финальный GET (клиент перечитывает ресурс для v7)
-	wantPrefix := []string{"PUT", "PATCH", "POST"}
-	if len(calls) < len(wantPrefix) {
-		t.Fatalf("methods used: %v, want prefix %v", calls, wantPrefix)
+	if out.ID != "str1" || out.Title != "updated" {
+		t.Fatalf("unexpected output: %+v", out)
 	}
-	for i := range wantPrefix {
-		if calls[i] != wantPrefix[i] {
-			t.Fatalf("method sequence mismatch: %v", calls)
+}
+
+func TestUpdateStream_ErrorOn405(t *testing.T) {
+	path := "/api/streams/str1"
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != path {
+			w.WriteHeader(404)
+			return
 		}
+		// Всегда возвращаем 405
+		w.WriteHeader(405)
+		_ = json.NewEncoder(w).Encode(map[string]any{"message": "method not allowed"})
+	}))
+	defer ts.Close()
+
+	c := newStreamTestClient(ts.URL)
+	s := &Stream{Title: "test"}
+	_, err := c.UpdateStream("str1", s)
+	if err == nil {
+		t.Fatal("expected error on 405 response")
+	}
+
+	ge, ok := err.(*GraylogError)
+	if !ok {
+		t.Fatalf("expected GraylogError, got %T", err)
+	}
+	if ge.Status != 405 {
+		t.Errorf("expected status 405, got %d", ge.Status)
 	}
 }
 

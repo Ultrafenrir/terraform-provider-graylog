@@ -312,19 +312,26 @@ func (r *indexSetResource) Read(ctx context.Context, req resource.ReadRequest, r
 }
 
 func (r *indexSetResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	var data indexSetModel
-	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
+	var plan indexSetModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	// Get current state to extract the ID (Computed field not in plan)
+	var state indexSetModel
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
 	// Runtime validation
-	resp.Diagnostics.Append(validateIndexSet(&data)...)
+	resp.Diagnostics.Append(validateIndexSet(&plan)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	updateTimeout, diags := data.Timeouts.Update(ctx, 5*time.Minute)
+	updateTimeout, diags := plan.Timeouts.Update(ctx, 5*time.Minute)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -333,57 +340,59 @@ func (r *indexSetResource) Update(ctx context.Context, req resource.UpdateReques
 	defer cancel()
 
 	// Remember whether user planned nested blocks in this update
-	wantRotation := data.Rotation != nil && !data.Rotation.Class.IsNull() && !data.Rotation.Class.IsUnknown()
-	wantRetention := data.Retention != nil && !data.Retention.Class.IsNull() && !data.Retention.Class.IsUnknown()
+	wantRotation := plan.Rotation != nil && !plan.Rotation.Class.IsNull() && !plan.Rotation.Class.IsUnknown()
+	wantRetention := plan.Retention != nil && !plan.Retention.Class.IsNull() && !plan.Retention.Class.IsUnknown()
 
-	_, err := r.client.WithContext(ctx).UpdateIndexSet(data.ID.ValueString(), &client.IndexSet{
-		Title:                           data.Title.ValueString(),
-		Description:                     data.Description.ValueString(),
-		IndexPrefix:                     data.IndexPrefix.ValueString(),
-		Shards:                          int(data.Shards.ValueInt64()),
-		Replicas:                        int(data.Replicas.ValueInt64()),
-		RotationStrategy:                data.RotationStrategy.ValueString(),
-		RetentionStrategy:               data.RetentionStrategy.ValueString(),
-		IndexAnalyzer:                   data.IndexAnalyzer.ValueString(),
-		FieldTypeRefreshInterval:        int(data.FieldTypeRefresh.ValueInt64()),
-		IndexOptimizationMaxNumSegments: int(data.IndexOptMaxSeg.ValueInt64()),
-		IndexOptimizationDisabled:       data.IndexOptDisabled.ValueBool(),
-		RotationStrategyClass:           getStrategyClass(data.Rotation),
-		RotationStrategyConfig:          mapFromStringMap(ctx, data.Rotation),
-		RetentionStrategyClass:          getStrategyClass(data.Retention),
-		RetentionStrategyConfig:         mapFromStringMap(ctx, data.Retention),
-		Default:                         data.Default.ValueBool(),
+	_, err := r.client.WithContext(ctx).UpdateIndexSet(state.ID.ValueString(), &client.IndexSet{
+		Title:                           plan.Title.ValueString(),
+		Description:                     plan.Description.ValueString(),
+		IndexPrefix:                     plan.IndexPrefix.ValueString(),
+		Shards:                          int(plan.Shards.ValueInt64()),
+		Replicas:                        int(plan.Replicas.ValueInt64()),
+		RotationStrategy:                plan.RotationStrategy.ValueString(),
+		RetentionStrategy:               plan.RetentionStrategy.ValueString(),
+		IndexAnalyzer:                   plan.IndexAnalyzer.ValueString(),
+		FieldTypeRefreshInterval:        int(plan.FieldTypeRefresh.ValueInt64()),
+		IndexOptimizationMaxNumSegments: int(plan.IndexOptMaxSeg.ValueInt64()),
+		IndexOptimizationDisabled:       plan.IndexOptDisabled.ValueBool(),
+		RotationStrategyClass:           getStrategyClass(plan.Rotation),
+		RotationStrategyConfig:          mapFromStringMap(ctx, plan.Rotation),
+		RetentionStrategyClass:          getStrategyClass(plan.Retention),
+		RetentionStrategyConfig:         mapFromStringMap(ctx, plan.Retention),
+		Default:                         plan.Default.ValueBool(),
 	})
 	if err != nil {
 		resp.Diagnostics.AddError("Error updating index set", err.Error())
 		return
 	}
 	// Re-read to normalize and ensure all Computed fields are known
-	is, rerr := r.client.WithContext(ctx).GetIndexSet(data.ID.ValueString())
+	is, rerr := r.client.WithContext(ctx).GetIndexSet(state.ID.ValueString())
 	if rerr != nil {
 		// At least make legacy fields known null to avoid unknowns
-		data.RotationStrategy = types.StringNull()
-		data.RetentionStrategy = types.StringNull()
-		resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+		plan.ID = state.ID
+		plan.RotationStrategy = types.StringNull()
+		plan.RetentionStrategy = types.StringNull()
+		resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 		return
 	}
-	applyIndexSetReadState(ctx, &data, is)
+	plan.ID = state.ID
+	applyIndexSetReadState(ctx, &plan, is)
 	// Приводим legacy поля к известному значению: если они были unknown в плане,
 	// явно выставляем null, чтобы исключить unknown после Apply.
-	if data.RotationStrategy.IsUnknown() {
-		data.RotationStrategy = types.StringNull()
+	if plan.RotationStrategy.IsUnknown() {
+		plan.RotationStrategy = types.StringNull()
 	}
-	if data.RetentionStrategy.IsUnknown() {
-		data.RetentionStrategy = types.StringNull()
+	if plan.RetentionStrategy.IsUnknown() {
+		plan.RetentionStrategy = types.StringNull()
 	}
 	// Не материализуем nested‑блоки после Update, если их не было в плане
 	if !wantRotation {
-		data.Rotation = nil
+		plan.Rotation = nil
 	}
 	if !wantRetention {
-		data.Retention = nil
+		plan.Retention = nil
 	}
-	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
 func (r *indexSetResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {

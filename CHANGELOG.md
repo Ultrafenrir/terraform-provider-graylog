@@ -1,5 +1,37 @@
 # Changelog
 
+## v0.3.5 (2026-04-18)
+### Fixed
+- **CRITICAL**: Index Set Update: fixed 405 errors caused by provider's Update method reading ID from Plan instead of State. Computed fields like `id` are not present in the Plan, resulting in empty ID being passed to UpdateIndexSet.
+- **CRITICAL**: Index Set Update: fixed missing fields in IndexSet struct and implemented read-modify-write pattern. Added `writable`, `creation_date`, `can_be_default`, and `index_template_type` fields that are required by Graylog API.
+- **CRITICAL**: IndexSet struct: removed `omitempty` from `replicas` and `index_optimization_disabled` fields - Graylog 7.x requires these fields to be present in all requests. This fixes 400 errors "Missing required properties: replicas indexOptimizationDisabled".
+- **CRITICAL**: IndexSet struct: field `Writable` was not serialized to JSON (had `json:"-"` tag), causing incomplete PUT requests. Now properly serializes as `"writable"` field.
+- **CRITICAL**: Stream Update: removed incorrect method fallbacks (PATCH/POST) that caused 405 errors. Now correctly uses only PUT method on `/api/streams/{id}` endpoint.
+- Index Set Update: implemented read-modify-write pattern - GET current state, merge changes, PUT complete object. Graylog API requires all fields in PUT requests.
+- Simplified UpdateStream implementation - removed complex fallback chains that were masking real API errors.
+
+### Tests
+- Added unit tests to verify that Update methods use correct HTTP method (PUT) and fail properly on 405 errors.
+- Updated unit tests to verify that UpdateIndexSet performs GET before PUT and sends complete object body.
+- Added acceptance test `TestAccIndexSet_update` to verify update operations work correctly against live Graylog API.
+- Verified fix against live Graylog instance using curl - PUT with complete object returns 200 OK, PATCH/POST return 405.
+
+### Technical Details
+- **Root cause identified**: resource_index_set.go Update method was reading from `req.Plan` instead of `req.State`. Since `id` is a Computed field, it's not in the Plan, causing `data.ID.ValueString()` to return empty string. This resulted in GET/PUT requests to `/api/system/indices/index_sets/` (no ID), which Graylog rejects with 405.
+- **Fix**: Changed Update method to read both Plan (for updated values) and State (for ID), then pass `state.ID` to UpdateIndexSet.
+- Analysis of live Graylog API revealed that IndexSet struct was missing 4 critical fields returned by GET endpoint.
+- The `IsWritable bool json:"-"` field was not being serialized, causing PUT requests to fail validation.
+- Changed to use complete `IndexSet` struct in PUT body instead of manually building map[string]any.
+- Read-modify-write pattern ensures all Graylog-managed fields (creation_date, can_be_default, etc.) are preserved.
+
+### Notes
+- This fix resolves multiple root causes:
+  1. Provider bug: reading ID from wrong source (Plan vs State)
+  2. Client bug: incomplete struct definition led to missing required fields in API requests
+- Tested against live Graylog instance - confirms PUT with complete object works, partial updates fail.
+- All existing configurations will continue to work without changes.
+- Compatible with Graylog 5.x, 6.x, and 7.x.
+
 ## v0.3.4 (2026-04-17)
 ### Fixed
 - Index Set: исправлен апдейт для некоторых сборок GL 5/6/7 — в теле запроса теперь передаётся `shards` (с гарантией `>=1`), что устраняет `400 must be >= 1` и связанные `405` на альтернативных путях/методах.
