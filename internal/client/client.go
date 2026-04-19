@@ -821,44 +821,40 @@ func (c *Client) CreateStream(s *Stream) (*Stream, error) {
 			if idRaw, ok := aux["stream_id"]; ok {
 				if id, ok := idRaw.(string); ok {
 					out.ID = id
-					return &out, nil
 				}
 			}
 			// sometimes response can be {"stream": {"id": "..."}}
 			if stream, ok := aux["stream"].(map[string]any); ok {
 				if id, ok := stream["id"].(string); ok && id != "" {
 					out.ID = id
-					return &out, nil
 				}
 			}
 		}
 		// Fallback: unmarshal directly into Stream
 		_ = json.Unmarshal(resp, &out)
 		if out.ID != "" {
-			// Handle disabled state after creation (similar to UpdateStream)
-			// For v7, use /pause and /resume endpoints
-			if c.APIVersion == APIV7 {
-				streamPath := fmt.Sprintf("/api/streams/%s", out.ID)
-				if s.Disabled {
-					_, _ = c.doRequest("POST", fmt.Sprintf("%s/pause", streamPath), nil)
-				} else {
-					_, _ = c.doRequest("POST", fmt.Sprintf("%s/resume", streamPath), nil)
+			// Handle disabled state after creation
+			streamPath := fmt.Sprintf("/api/streams/%s", out.ID)
+
+			// Newly created streams default to disabled=true
+			// If we want disabled=false, we need to resume it
+			if !s.Disabled {
+				// Try resume endpoint first (v7)
+				_, err := c.doRequest("POST", fmt.Sprintf("%s/resume", streamPath), nil)
+				if err != nil {
+					// If resume fails, try PUT (v5/v6)
+					updateBody := map[string]any{
+						"title":                              s.Title,
+						"description":                        s.Description,
+						"index_set_id":                       s.IndexSetID,
+						"matching_type":                      matchingType,
+						"remove_matches_from_default_stream": s.RemoveMatchesFromDefaultStream,
+						"disabled":                           false,
+					}
+					c.doRequest("PUT", streamPath, updateBody)
 				}
 			}
-			// For v5/v6, try to update the disabled field via PUT
-			// (since create doesn't accept it)
-			if c.APIVersion == APIV5 || c.APIVersion == APIV6 {
-				updatePath := fmt.Sprintf("/api/streams/%s", out.ID)
-				updateBody := map[string]any{
-					"title":                              s.Title,
-					"description":                        s.Description,
-					"index_set_id":                       s.IndexSetID,
-					"matching_type":                      matchingType,
-					"remove_matches_from_default_stream": s.RemoveMatchesFromDefaultStream,
-					"disabled":                           s.Disabled,
-				}
-				_, _ = c.doRequest("PUT", updatePath, updateBody)
-			}
+
 			// Re-read to get actual state
 			if got, err := c.GetStream(out.ID); err == nil {
 				return got, nil
@@ -912,18 +908,19 @@ func (c *Client) UpdateStream(id string, s *Stream) (*Stream, error) {
 	var out Stream
 	_ = json.Unmarshal(resp, &out)
 
-	// Для v7 управляем disabled через отдельные endpoints /pause и /resume
-	if c.APIVersion == APIV7 {
-		if s.Disabled {
-			_, _ = c.doRequest("POST", fmt.Sprintf("%s/pause", path), nil)
-		} else {
-			_, _ = c.doRequest("POST", fmt.Sprintf("%s/resume", path), nil)
-		}
-		// Перечитываем состояние для получения актуальных полей
-		got, gerr := c.GetStream(id)
-		if gerr == nil {
-			return got, nil
-		}
+	// Handle disabled state for all versions
+	// v7 requires separate pause/resume endpoints
+	// v5/v6 may also need them if PUT doesn't update disabled
+	if s.Disabled {
+		c.doRequest("POST", fmt.Sprintf("%s/pause", path), nil)
+	} else {
+		c.doRequest("POST", fmt.Sprintf("%s/resume", path), nil)
+	}
+
+	// Re-read to get actual state
+	got, gerr := c.GetStream(id)
+	if gerr == nil {
+		return got, nil
 	}
 	return &out, nil
 }

@@ -153,6 +153,10 @@ func (r *streamResource) Create(ctx context.Context, req resource.CreateRequest,
 	data.ID = types.StringValue(created.ID)
 	// Read back actual values from API to ensure all computed fields are populated
 	data.RemoveMatchesFromDefault = types.BoolValue(created.RemoveMatchesFromDefaultStream)
+	// Only set disabled if it was specified in config
+	if !data.Disabled.IsNull() && !data.Disabled.IsUnknown() {
+		data.Disabled = types.BoolValue(created.Disabled)
+	}
 	// Create rules if provided via dedicated API
 	for i, rr := range data.Rules {
 		rule := &client.StreamRule{
@@ -208,6 +212,10 @@ func (r *streamResource) Read(ctx context.Context, req resource.ReadRequest, res
 	if resp.Diagnostics.HasError() {
 		return
 	}
+
+	// Remember if disabled was in prior state
+	hadDisabled := !data.Disabled.IsNull() && !data.Disabled.IsUnknown()
+
 	s, err := r.client.WithContext(ctx).GetStream(data.ID.ValueString())
 	if err != nil {
 		if errors.Is(err, client.ErrNotFound) {
@@ -220,7 +228,10 @@ func (r *streamResource) Read(ctx context.Context, req resource.ReadRequest, res
 	}
 	data.Title = types.StringValue(s.Title)
 	data.Description = types.StringValue(s.Description)
-	data.Disabled = types.BoolValue(s.Disabled)
+	// Only materialize disabled if it was in prior state
+	if hadDisabled {
+		data.Disabled = types.BoolValue(s.Disabled)
+	}
 	data.IndexSetID = types.StringValue(s.IndexSetID)
 	data.RemoveMatchesFromDefault = types.BoolValue(s.RemoveMatchesFromDefaultStream)
 	// Read stream rules via API

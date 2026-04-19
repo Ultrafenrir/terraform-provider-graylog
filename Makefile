@@ -22,7 +22,7 @@ ARCH ?= $(shell uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/')
 
 .PHONY: default deps deps-fresh fmt lint test test-unit test-acc build build-quick build-all clean release help \
     graylog-up graylog-up-graylog graylog-down graylog-stop graylog-logs graylog-wait graylog-ps test-integration test-integration-one test-integration-all \
-    test-acc-integration test-acc-one test-acc-all prepare-dev-provider test-migration graylog-upgrade-seq
+    test-acc-integration test-acc-one test-acc-all prepare-dev-provider test-migration graylog-upgrade-seq test-pre-release
 
 default: build-quick
 
@@ -36,6 +36,7 @@ help:
 	@echo "  make test-acc     - Run acceptance tests (requires Graylog)"
 	@echo "  make test-integration - Start Graylog (docker-compose) and run integration tests (vars: PKG, RUN, TIMEOUT, GRAYLOG_VERSION)"
 	@echo "  make test         - Run tests: unit by default; with INTEGRATION=1 — integration"
+	@echo "  make test-pre-release - Run ALL tests before release (unit + integration + acceptance for GL 5/6/7)"
 	@echo "  make build-quick  - Fast build without dependency checks"
 	@echo "  make build        - Full build with dependencies"
 	@echo "  make build-all    - Build for all platforms"
@@ -384,6 +385,34 @@ graylog-upgrade-seq:
 	  $(MAKE) GRAYLOG_VERSION=7.0 graylog-up >/dev/null; \
 	  { $(MAKE) graylog-wait >/dev/null && echo "Graylog 7.0 is up"; } || { echo "Graylog 7.0 failed to become ready"; $(MAKE) graylog-ps; $(MAKE) graylog-logs; exit 1; }; \
 	  echo "Sequential upgrade succeeded (5.0 → 6.0 → 7.0)"'
+
+# Pre-release validation: run all critical tests
+test-pre-release:
+	@echo "========================================="
+	@echo "Running pre-release test suite"
+	@echo "This will take ~30-60 minutes"
+	@echo "========================================="
+	@echo ""
+	@echo "[1/4] Running unit tests..."
+	@$(MAKE) test-unit || { echo "❌ Unit tests FAILED"; exit 1; }
+	@echo "✅ Unit tests passed"
+	@echo ""
+	@echo "[2/4] Running integration tests for Graylog 5.x, 6.x, 7.x..."
+	@$(MAKE) test-integration-all || { echo "❌ Integration tests FAILED"; exit 1; }
+	@echo "✅ Integration tests passed"
+	@echo ""
+	@echo "[3/4] Running acceptance tests for Graylog 5.x, 6.x, 7.x..."
+	@$(MAKE) test-acc-all || { echo "❌ Acceptance tests FAILED"; exit 1; }
+	@echo "✅ Acceptance tests passed"
+	@echo ""
+	@echo "[4/4] Running migration test (5→6→7)..."
+	@$(MAKE) test-migration || { echo "❌ Migration test FAILED"; exit 1; }
+	@echo "✅ Migration test passed"
+	@echo ""
+	@echo "========================================="
+	@echo "✅ ALL PRE-RELEASE TESTS PASSED"
+	@echo "========================================="
+	@echo "You can now safely run 'make release'"
 
 release: clean build-all
 	@echo "Creating release..."
