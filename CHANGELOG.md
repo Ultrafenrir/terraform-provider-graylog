@@ -3,7 +3,7 @@
 ## v0.3.5 (2026-04-19)
 
 ### Breaking Changes
-- **REMOVED**: Deprecated legacy fields `rotation_strategy` and `retention_strategy` from Index Set resource. These fields were never sent to Graylog API (marked with `json:"-"`) and only caused confusion and "unknown value" errors. Use `rotation` and `retention` blocks instead, which are fully supported since Graylog 5.x.
+- **REMOVED**: Deprecated legacy fields `rotation_strategy` and `retention_strategy` from Index Set resource and data sources. These fields were never sent to Graylog API (marked with `json:"-"`) and only caused confusion and "unknown value" errors. Use `rotation` and `retention` blocks instead, which are fully supported since Graylog 5.x.
 
 ### Fixed
 - **CRITICAL**: Index Set Update: fixed 405 errors caused by provider's Update method reading ID from Plan instead of State. Computed fields like `id` are not present in the Plan, resulting in empty ID being passed to UpdateIndexSet.
@@ -15,6 +15,7 @@
 - Index Set Update: implemented read-modify-write pattern - GET current state, merge changes, PUT complete object. Graylog API requires all fields in PUT requests.
 - Simplified UpdateStream implementation - removed complex fallback chains that were masking real API errors.
 - Simplified Create and Update methods - removed conditional logic for nullifying nested blocks, now all fields are consistently applied from API response.
+- **CRITICAL**: Index Set rotation/retention config: fixed "Provider produced inconsistent result" errors caused by Graylog API returning "type" field and numeric values in scientific notation (e.g., `2e+07`). Now filters out "type" field and formats floats without scientific notation.
 
 ### Tests
 - Added unit tests to verify that Update methods use correct HTTP method (PUT) and fail properly on 405 errors.
