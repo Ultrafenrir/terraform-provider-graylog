@@ -104,7 +104,7 @@ jobs:
           BIN_IN_ZIP="${BIN}_v${VERSION}"
           OUT="dist/${BIN_IN_ZIP}"
           echo "Building $OUT for ${GOOS}/${GOARCH}"
-          GOOS=${GOOS} GOARCH=${GOARCH} go build -ldflags "-s -w" -o "$OUT"
+          CGO_ENABLED=0 GOOS=${GOOS} GOARCH=${GOARCH} go build -ldflags "-s -w" -o "$OUT"
           # Упаковываем в архив с ОС/арх в имени
           (cd dist && zip "${BIN}_${VERSION}_${GOOS}_${GOARCH}.zip" "${BIN_IN_ZIP}")
 
