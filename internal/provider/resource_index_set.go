@@ -252,8 +252,21 @@ func (r *indexSetResource) Create(ctx context.Context, req resource.CreateReques
 	// Set ID
 	data.ID = types.StringValue(is.ID)
 
+	// Remember if user specified rotation/retention blocks in plan
+	// Check both nil and non-null class to handle framework quirks
+	wantRotation := data.Rotation != nil && !data.Rotation.Class.IsNull() && !data.Rotation.Class.IsUnknown()
+	wantRetention := data.Retention != nil && !data.Retention.Class.IsNull() && !data.Retention.Class.IsUnknown()
+
 	// Apply all fields from API response
 	applyIndexSetReadState(ctx, &data, is)
+
+	// Don't materialize rotation/retention blocks if user didn't specify them
+	if !wantRotation {
+		data.Rotation = nil
+	}
+	if !wantRetention {
+		data.Retention = nil
+	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
@@ -278,7 +291,7 @@ func (r *indexSetResource) Read(ctx context.Context, req resource.ReadRequest, r
 		return
 	}
 	applyIndexSetReadState(ctx, &data, is)
-	// Avoid introducing new nested blocks if их не было ранее в состоянии
+	// Don't materialize rotation/retention blocks if they weren't in prior state
 	if !hadRotation {
 		data.Rotation = nil
 	}
@@ -347,8 +360,21 @@ func (r *indexSetResource) Update(ctx context.Context, req resource.UpdateReques
 	// Set ID from state
 	plan.ID = state.ID
 
+	// Remember if user specified rotation/retention blocks in plan
+	// Check both nil and non-null class to handle framework quirks
+	wantRotation := plan.Rotation != nil && !plan.Rotation.Class.IsNull() && !plan.Rotation.Class.IsUnknown()
+	wantRetention := plan.Retention != nil && !plan.Retention.Class.IsNull() && !plan.Retention.Class.IsUnknown()
+
 	// Apply all fields from API response
 	applyIndexSetReadState(ctx, &plan, is)
+
+	// Don't materialize rotation/retention blocks if user didn't specify them
+	if !wantRotation {
+		plan.Rotation = nil
+	}
+	if !wantRetention {
+		plan.Retention = nil
+	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
@@ -374,7 +400,30 @@ func (r *indexSetResource) Delete(ctx context.Context, req resource.DeleteReques
 }
 
 func (r *indexSetResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
+	// Set ID in state first
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), req.ID)...)
+
+	// Fetch from API
+	is, err := r.client.WithContext(ctx).GetIndexSet(req.ID)
+	if err != nil {
+		resp.Diagnostics.AddError("Error importing index set", err.Error())
+		return
+	}
+
+	// Read current state (which now has ID set)
+	var data indexSetModel
+	resp.Diagnostics.Append(resp.State.Get(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	// Apply all fields from API, including rotation/retention blocks
+	applyIndexSetReadState(ctx, &data, is)
+
+	// On import, always materialize rotation/retention blocks if present in API
+	// (don't apply the "had in prior state" logic used in Read)
+
+	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
 // ---- Helpers ----
