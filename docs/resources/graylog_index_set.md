@@ -12,19 +12,20 @@ Manages a Graylog index set. Part of the Graylog Terraform Provider for Graylog 
 ## Example Usage
 
 ```hcl
-# Minimal (legacy flat fields)
-resource "graylog_index_set" "main" {
-  title              = "main-index"
-  description        = "Managed by Terraform"
-  rotation_strategy  = "time"
-  retention_strategy = "delete"
-  shards             = 4
+# Minimal configuration (defaults from Graylog)
+resource "graylog_index_set" "minimal" {
+  title        = "minimal-index"
+  index_prefix = "minimal"
+  shards       = 1
+  replicas     = 0
+  default      = false
 }
 
-# Recommended (Graylog 5+): explicit class + config blocks
-resource "graylog_index_set" "with_delete" {
+# Full configuration with rotation and retention (Graylog 5+)
+resource "graylog_index_set" "full" {
   title        = "logs"
   index_prefix = "logs"
+  description  = "Managed by Terraform"
 
   rotation {
     class  = "org.graylog2.indexer.rotation.strategies.MessageCountRotationStrategy"
@@ -34,10 +35,8 @@ resource "graylog_index_set" "with_delete" {
   }
 
   retention {
-    # Deletion strategy
     class  = "org.graylog2.indexer.retention.strategies.DeletionRetentionStrategy"
     config = {
-      # Keep last N indices, older ones will be deleted
       max_number_of_indices = "20"
     }
   }
@@ -96,9 +95,14 @@ resource "graylog_index_set" "rotate_by_time" {
 
 - `title` (String, Required) — Index set title.
 - `description` (String, Optional) — Description.
-- `rotation_strategy` (String, Optional) — Legacy rotation strategy hint (e.g., `time`). Prefer the `rotation` block below on Graylog 5+.
-- `retention_strategy` (String, Optional) — Legacy retention strategy hint (e.g., `delete`). Prefer the `retention` block below on Graylog 5+.
-- `shards` (Number, Optional) — Number of shards.
+- `index_prefix` (String, Required) — Index name prefix (lowercase letters, numbers, dash, underscore).
+- `shards` (Number, Optional) — Number of Elasticsearch shards (must be >= 0).
+- `replicas` (Number, Optional) — Number of Elasticsearch replicas (must be >= 0).
+- `index_analyzer` (String, Optional) — Elasticsearch analyzer to use (defaults to 'standard').
+- `field_type_refresh_interval` (Number, Optional) — Field type refresh interval in milliseconds (defaults to 5000).
+- `index_optimization_max_num_segments` (Number, Optional) — Max number of segments for index optimization (>=1, defaults to 1).
+- `index_optimization_disabled` (Boolean, Optional) — Disable index optimization (defaults to false).
+- `default` (Boolean, Optional) — Whether this is the default index set.
 - `timeouts` (Block, Optional) — Customize create/update/delete timeouts.
 
 ### rotation (Block) — Graylog 5+

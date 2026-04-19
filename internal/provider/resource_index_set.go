@@ -22,22 +22,20 @@ import (
 type indexSetResource struct{ client *client.Client }
 
 type indexSetModel struct {
-	ID                types.String   `tfsdk:"id"`
-	Title             types.String   `tfsdk:"title"`
-	Description       types.String   `tfsdk:"description"`
-	IndexPrefix       types.String   `tfsdk:"index_prefix"`
-	Shards            types.Int64    `tfsdk:"shards"`
-	Replicas          types.Int64    `tfsdk:"replicas"`
-	RotationStrategy  types.String   `tfsdk:"rotation_strategy"`
-	RetentionStrategy types.String   `tfsdk:"retention_strategy"`
-	IndexAnalyzer     types.String   `tfsdk:"index_analyzer"`
-	FieldTypeRefresh  types.Int64    `tfsdk:"field_type_refresh_interval"`
-	IndexOptMaxSeg    types.Int64    `tfsdk:"index_optimization_max_num_segments"`
-	IndexOptDisabled  types.Bool     `tfsdk:"index_optimization_disabled"`
-	Rotation          *strategyModel `tfsdk:"rotation"`
-	Retention         *strategyModel `tfsdk:"retention"`
-	Default           types.Bool     `tfsdk:"default"`
-	Timeouts          timeouts.Value `tfsdk:"timeouts"`
+	ID               types.String   `tfsdk:"id"`
+	Title            types.String   `tfsdk:"title"`
+	Description      types.String   `tfsdk:"description"`
+	IndexPrefix      types.String   `tfsdk:"index_prefix"`
+	Shards           types.Int64    `tfsdk:"shards"`
+	Replicas         types.Int64    `tfsdk:"replicas"`
+	IndexAnalyzer    types.String   `tfsdk:"index_analyzer"`
+	FieldTypeRefresh types.Int64    `tfsdk:"field_type_refresh_interval"`
+	IndexOptMaxSeg   types.Int64    `tfsdk:"index_optimization_max_num_segments"`
+	IndexOptDisabled types.Bool     `tfsdk:"index_optimization_disabled"`
+	Rotation         *strategyModel `tfsdk:"rotation"`
+	Retention        *strategyModel `tfsdk:"retention"`
+	Default          types.Bool     `tfsdk:"default"`
+	Timeouts         timeouts.Value `tfsdk:"timeouts"`
 }
 
 type strategyModel struct {
@@ -85,8 +83,6 @@ func (r *indexSetResource) Schema(ctx context.Context, _ resource.SchemaRequest,
 					int64validator.AtLeast(0),
 				},
 			},
-			"rotation_strategy":                   schema.StringAttribute{Optional: true, Computed: true, Description: "Index rotation strategy (legacy/simple name). Prefer the 'rotation' block."},
-			"retention_strategy":                  schema.StringAttribute{Optional: true, Computed: true, Description: "Index retention strategy (legacy/simple name). Prefer the 'retention' block."},
 			"index_analyzer":                      schema.StringAttribute{Optional: true, Computed: true, Description: "Elasticsearch analyzer to use (defaults to 'standard')"},
 			"field_type_refresh_interval":         schema.Int64Attribute{Optional: true, Computed: true, Description: "Field type refresh interval in milliseconds (defaults to 5000)"},
 			"index_optimization_max_num_segments": schema.Int64Attribute{Optional: true, Computed: true, Description: "Max number of segments for index optimization (>=1, defaults to 1)"},
@@ -225,16 +221,12 @@ func (r *indexSetResource) Create(ctx context.Context, req resource.CreateReques
 	ctx, cancel := context.WithTimeout(ctx, createTimeout)
 	defer cancel()
 
-	// Note: optional nested blocks are intentionally not materialized in Create response
-
 	created, err := r.client.WithContext(ctx).CreateIndexSet(&client.IndexSet{
 		Title:                           data.Title.ValueString(),
 		Description:                     data.Description.ValueString(),
 		IndexPrefix:                     data.IndexPrefix.ValueString(),
 		Shards:                          int(data.Shards.ValueInt64()),
 		Replicas:                        int(data.Replicas.ValueInt64()),
-		RotationStrategy:                data.RotationStrategy.ValueString(),
-		RetentionStrategy:               data.RetentionStrategy.ValueString(),
 		IndexAnalyzer:                   data.IndexAnalyzer.ValueString(),
 		FieldTypeRefreshInterval:        int(data.FieldTypeRefresh.ValueInt64()),
 		IndexOptimizationMaxNumSegments: int(data.IndexOptMaxSeg.ValueInt64()),
@@ -249,35 +241,20 @@ func (r *indexSetResource) Create(ctx context.Context, req resource.CreateReques
 		resp.Diagnostics.AddError("Error creating index set", err.Error())
 		return
 	}
-	// Refresh from API to ensure all Computed attributes are known after apply
-	is, rerr := r.client.WithContext(ctx).GetIndexSet(created.ID)
-	if rerr != nil {
-		// Fall back to minimal known state if immediate read fails
-		data.ID = types.StringValue(created.ID)
-		data.RotationStrategy = types.StringNull()
-		data.RetentionStrategy = types.StringNull()
-		if created.Default {
-			data.Default = types.BoolValue(true)
-		} else {
-			data.Default = types.BoolValue(false)
-		}
-		resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+
+	// Read back from API to get the complete state with all server-populated fields
+	is, err := r.client.WithContext(ctx).GetIndexSet(created.ID)
+	if err != nil {
+		resp.Diagnostics.AddError("Error reading index set after create", err.Error())
 		return
 	}
+
+	// Set ID
 	data.ID = types.StringValue(is.ID)
+
+	// Apply all fields from API response
 	applyIndexSetReadState(ctx, &data, is)
-	// Приводим legacy поля к известному значению: если они не заданы пользователем
-	// (unknown/null в плане), помечаем их явным null, чтобы избежать unknown после Apply.
-	if data.RotationStrategy.IsUnknown() {
-		data.RotationStrategy = types.StringNull()
-	}
-	if data.RetentionStrategy.IsUnknown() {
-		data.RetentionStrategy = types.StringNull()
-	}
-	// Do not materialize nested blocks in Create response to avoid
-	// "unexpected new value" for optional blocks that were not planned
-	data.Rotation = nil
-	data.Retention = nil
+
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
@@ -339,18 +316,12 @@ func (r *indexSetResource) Update(ctx context.Context, req resource.UpdateReques
 	ctx, cancel := context.WithTimeout(ctx, updateTimeout)
 	defer cancel()
 
-	// Remember whether user planned nested blocks in this update
-	wantRotation := plan.Rotation != nil && !plan.Rotation.Class.IsNull() && !plan.Rotation.Class.IsUnknown()
-	wantRetention := plan.Retention != nil && !plan.Retention.Class.IsNull() && !plan.Retention.Class.IsUnknown()
-
 	_, err := r.client.WithContext(ctx).UpdateIndexSet(state.ID.ValueString(), &client.IndexSet{
 		Title:                           plan.Title.ValueString(),
 		Description:                     plan.Description.ValueString(),
 		IndexPrefix:                     plan.IndexPrefix.ValueString(),
 		Shards:                          int(plan.Shards.ValueInt64()),
 		Replicas:                        int(plan.Replicas.ValueInt64()),
-		RotationStrategy:                plan.RotationStrategy.ValueString(),
-		RetentionStrategy:               plan.RetentionStrategy.ValueString(),
 		IndexAnalyzer:                   plan.IndexAnalyzer.ValueString(),
 		FieldTypeRefreshInterval:        int(plan.FieldTypeRefresh.ValueInt64()),
 		IndexOptimizationMaxNumSegments: int(plan.IndexOptMaxSeg.ValueInt64()),
@@ -365,33 +336,20 @@ func (r *indexSetResource) Update(ctx context.Context, req resource.UpdateReques
 		resp.Diagnostics.AddError("Error updating index set", err.Error())
 		return
 	}
-	// Re-read to normalize and ensure all Computed fields are known
-	is, rerr := r.client.WithContext(ctx).GetIndexSet(state.ID.ValueString())
-	if rerr != nil {
-		// At least make legacy fields known null to avoid unknowns
-		plan.ID = state.ID
-		plan.RotationStrategy = types.StringNull()
-		plan.RetentionStrategy = types.StringNull()
-		resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+
+	// Read back from API to get the complete updated state
+	is, err := r.client.WithContext(ctx).GetIndexSet(state.ID.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError("Error reading index set after update", err.Error())
 		return
 	}
+
+	// Set ID from state
 	plan.ID = state.ID
+
+	// Apply all fields from API response
 	applyIndexSetReadState(ctx, &plan, is)
-	// Приводим legacy поля к известному значению: если они были unknown в плане,
-	// явно выставляем null, чтобы исключить unknown после Apply.
-	if plan.RotationStrategy.IsUnknown() {
-		plan.RotationStrategy = types.StringNull()
-	}
-	if plan.RetentionStrategy.IsUnknown() {
-		plan.RetentionStrategy = types.StringNull()
-	}
-	// Не материализуем nested‑блоки после Update, если их не было в плане
-	if !wantRotation {
-		plan.Rotation = nil
-	}
-	if !wantRetention {
-		plan.Retention = nil
-	}
+
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -448,6 +406,11 @@ func mapToStringMap(ctx context.Context, in map[string]any) types.Map {
 	}
 	flat := map[string]string{}
 	for k, v := range in {
+		// Skip "type" field that Graylog automatically adds to strategy configs
+		// User doesn't configure it, so including it causes "new element appeared" errors
+		if k == "type" {
+			continue
+		}
 		flat[k] = toString(v)
 	}
 	mv, _ := types.MapValueFrom(ctx, types.StringType, flat)
@@ -462,9 +425,7 @@ func applyIndexSetReadState(ctx context.Context, data *indexSetModel, is *client
 	data.IndexPrefix = types.StringValue(is.IndexPrefix)
 	data.Shards = types.Int64Value(int64(is.Shards))
 	data.Replicas = types.Int64Value(int64(is.Replicas))
-	// Не трогаем legacy-поля rotation_strategy/retention_strategy.
-	// Если пользователь задал их в плане, сохраняем прежнее значение в состоянии,
-	// чтобы Terraform не считал это «неожиданным новым значением» сразу после Apply.
+
 	// Normalize analyzer and numeric defaults to stable values to eliminate plan drift
 	analyzer := is.IndexAnalyzer
 	if analyzer == "" {
