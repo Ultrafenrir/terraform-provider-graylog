@@ -23,7 +23,7 @@ out/
 .continue/session/
 .continue/cache/
 .continue/tmp/
-
+test/manual/*
 # ===========================
 # Other project-specific ignores
 # ===========================

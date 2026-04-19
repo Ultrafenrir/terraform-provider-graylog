@@ -8,8 +8,8 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
-// Проверяем нормализацию дефолтов и null для легаси полей без обёрток фреймворка
-func TestIndexSet_NormalizesDefaultsAndLegacyNull(t *testing.T) {
+// Проверяем нормализацию дефолтов и что "type" поле фильтруется из rotation/retention config
+func TestIndexSet_NormalizesDefaultsAndFiltersTypeField(t *testing.T) {
 	is := client.IndexSet{
 		ID:                        "id1",
 		Title:                     "T",
@@ -37,11 +37,17 @@ func TestIndexSet_NormalizesDefaultsAndLegacyNull(t *testing.T) {
 	if v := data.IndexOptMaxSeg.ValueInt64(); v != 1 {
 		t.Fatalf("index_optimization_max_num_segments want 1, got %d", v)
 	}
-	if !data.RotationStrategy.IsNull() || !data.RetentionStrategy.IsNull() {
-		t.Fatalf("legacy strategies must be null to avoid drift")
-	}
 	if data.Rotation == nil || data.Retention == nil {
 		t.Fatalf("rotation/retention blocks must be set")
+	}
+	// Verify that "type" field is filtered out from config
+	rotationConfig := make(map[string]string)
+	data.Rotation.Config.ElementsAs(ctxBackground(), &rotationConfig, false)
+	if _, hasType := rotationConfig["type"]; hasType {
+		t.Fatalf("rotation config should not contain 'type' field")
+	}
+	if rotationConfig["max_docs_per_index"] != "10" {
+		t.Fatalf("rotation config max_docs_per_index want '10', got %q", rotationConfig["max_docs_per_index"])
 	}
 }
 

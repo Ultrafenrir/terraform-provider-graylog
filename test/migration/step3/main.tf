@@ -35,8 +35,6 @@ resource "graylog_index_set" "is" {
   lifecycle {
     ignore_changes = [
       # Prevent any updates on GL7 where PUT may be restricted in some builds
-      rotation_strategy,
-      retention_strategy,
       shards,
       field_type_refresh_interval,
       index_analyzer,

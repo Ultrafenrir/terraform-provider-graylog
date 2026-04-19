@@ -17,11 +17,9 @@ type indexSetDataSourceModel struct {
 	Title             types.String `tfsdk:"title"`
 	Description       types.String `tfsdk:"description"`
 	IndexPrefix       types.String `tfsdk:"index_prefix"`
-	Shards            types.Int64  `tfsdk:"shards"`
-	Replicas          types.Int64  `tfsdk:"replicas"`
-	RotationStrategy  types.String `tfsdk:"rotation_strategy"`
-	RetentionStrategy types.String `tfsdk:"retention_strategy"`
-	IndexAnalyzer     types.String `tfsdk:"index_analyzer"`
+	Shards        types.Int64  `tfsdk:"shards"`
+	Replicas      types.Int64  `tfsdk:"replicas"`
+	IndexAnalyzer types.String `tfsdk:"index_analyzer"`
 	Default           types.Bool   `tfsdk:"default"`
 }
 
@@ -35,16 +33,14 @@ func (d *indexSetDataSource) Schema(_ context.Context, _ datasource.SchemaReques
 	resp.Schema = schema.Schema{
 		Description: "Fetches a Graylog index set by ID. Compatible with Graylog v5, v6, and v7.",
 		Attributes: map[string]schema.Attribute{
-			"id":                 schema.StringAttribute{Required: true, Description: "The unique identifier of the index set"},
-			"title":              schema.StringAttribute{Computed: true, Description: "The title of the index set"},
-			"description":        schema.StringAttribute{Computed: true, Description: "Description of the index set"},
-			"index_prefix":       schema.StringAttribute{Computed: true, Description: "Index name prefix"},
-			"shards":             schema.Int64Attribute{Computed: true, Description: "Number of Elasticsearch shards"},
-			"replicas":           schema.Int64Attribute{Computed: true, Description: "Number of Elasticsearch replicas"},
-			"rotation_strategy":  schema.StringAttribute{Computed: true, Description: "Index rotation strategy"},
-			"retention_strategy": schema.StringAttribute{Computed: true, Description: "Index retention strategy"},
-			"index_analyzer":     schema.StringAttribute{Computed: true, Description: "Elasticsearch analyzer"},
-			"default":            schema.BoolAttribute{Computed: true, Description: "Whether this is the default index set"},
+			"id":            schema.StringAttribute{Required: true, Description: "The unique identifier of the index set"},
+			"title":         schema.StringAttribute{Computed: true, Description: "The title of the index set"},
+			"description":   schema.StringAttribute{Computed: true, Description: "Description of the index set"},
+			"index_prefix":  schema.StringAttribute{Computed: true, Description: "Index name prefix"},
+			"shards":        schema.Int64Attribute{Computed: true, Description: "Number of Elasticsearch shards"},
+			"replicas":      schema.Int64Attribute{Computed: true, Description: "Number of Elasticsearch replicas"},
+			"index_analyzer": schema.StringAttribute{Computed: true, Description: "Elasticsearch analyzer"},
+			"default":       schema.BoolAttribute{Computed: true, Description: "Whether this is the default index set"},
 		},
 	}
 }
@@ -78,8 +74,6 @@ func (d *indexSetDataSource) Read(ctx context.Context, req datasource.ReadReques
 	data.IndexPrefix = types.StringValue(is.IndexPrefix)
 	data.Shards = types.Int64Value(int64(is.Shards))
 	data.Replicas = types.Int64Value(int64(is.Replicas))
-	data.RotationStrategy = types.StringValue(is.RotationStrategy)
-	data.RetentionStrategy = types.StringValue(is.RetentionStrategy)
 	data.IndexAnalyzer = types.StringValue(is.IndexAnalyzer)
 	data.Default = types.BoolValue(is.Default)
 

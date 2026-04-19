@@ -36,9 +36,7 @@ resource "graylog_index_set" "is" {
 
   lifecycle {
     ignore_changes = [
-      # GL5 returns legacy rotation/retention/shards defaults; ignore to avoid drift
-      rotation_strategy,
-      retention_strategy,
+      # Ignore computed defaults to avoid drift
       shards,
       field_type_refresh_interval,
       index_analyzer,

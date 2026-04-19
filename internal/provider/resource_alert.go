@@ -409,6 +409,11 @@ func toString(v interface{}) string {
 	case int64:
 		return fmt.Sprintf("%d", t)
 	case float64:
+		// Use %.0f to avoid scientific notation (e.g., 2e+07)
+		// This ensures consistency with user input like "20000000"
+		if t == float64(int64(t)) {
+			return fmt.Sprintf("%.0f", t)
+		}
 		return fmt.Sprintf("%g", t)
 	default:
 		return ""

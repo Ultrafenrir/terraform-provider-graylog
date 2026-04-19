@@ -8,9 +8,24 @@ provider "graylog" {
 }
 
 resource "graylog_index_set" "main" {
-  title              = "main-index"
-  rotation_strategy  = "time"
-  retention_strategy = "delete"
+  title        = "main-index"
+  index_prefix = "main"
+  shards       = 1
+  replicas     = 1
+
+  rotation {
+    class = "org.graylog2.indexer.rotation.strategies.MessageCountRotationStrategy"
+    config = {
+      max_docs_per_index = "20000000"
+    }
+  }
+
+  retention {
+    class = "org.graylog2.indexer.retention.strategies.DeletionRetentionStrategy"
+    config = {
+      max_number_of_indices = "20"
+    }
+  }
 }
 
 resource "graylog_stream" "errors_timeouts" {
