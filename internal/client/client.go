@@ -835,6 +835,34 @@ func (c *Client) CreateStream(s *Stream) (*Stream, error) {
 		// Fallback: unmarshal directly into Stream
 		_ = json.Unmarshal(resp, &out)
 		if out.ID != "" {
+			// Handle disabled state after creation (similar to UpdateStream)
+			// For v7, use /pause and /resume endpoints
+			if c.APIVersion == APIV7 {
+				streamPath := fmt.Sprintf("/api/streams/%s", out.ID)
+				if s.Disabled {
+					_, _ = c.doRequest("POST", fmt.Sprintf("%s/pause", streamPath), nil)
+				} else {
+					_, _ = c.doRequest("POST", fmt.Sprintf("%s/resume", streamPath), nil)
+				}
+			}
+			// For v5/v6, try to update the disabled field via PUT
+			// (since create doesn't accept it)
+			if c.APIVersion == APIV5 || c.APIVersion == APIV6 {
+				updatePath := fmt.Sprintf("/api/streams/%s", out.ID)
+				updateBody := map[string]any{
+					"title":                              s.Title,
+					"description":                        s.Description,
+					"index_set_id":                       s.IndexSetID,
+					"matching_type":                      matchingType,
+					"remove_matches_from_default_stream": s.RemoveMatchesFromDefaultStream,
+					"disabled":                           s.Disabled,
+				}
+				_, _ = c.doRequest("PUT", updatePath, updateBody)
+			}
+			// Re-read to get actual state
+			if got, err := c.GetStream(out.ID); err == nil {
+				return got, nil
+			}
 			return &out, nil
 		}
 		// If we got here — save the body and continue (in case of the second attempt)

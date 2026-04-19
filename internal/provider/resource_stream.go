@@ -86,22 +86,22 @@ func (r *streamResource) Schema(ctx context.Context, _ resource.SchemaRequest, r
 }
 
 // UpgradeState migrates prior state versions to the latest schema version.
-// v2 -> v3: ensure the newly Computed attribute 'remove_matches_from_default_stream'
+// v0/v1/v2 -> v3: ensure the newly Computed attribute 'remove_matches_from_default_stream'
 // is present in state (defaults to false) to avoid drift on migration/import across GL versions.
 func (r *streamResource) UpgradeState(ctx context.Context, req resource.UpgradeStateRequest, resp *resource.UpgradeStateResponse) {
-	var raw map[string]any
-	diags := req.State.GetAttribute(ctx, path.Empty(), &raw)
-	resp.Diagnostics.Append(diags...)
+	var priorStateData streamModel
+	resp.Diagnostics.Append(req.State.Get(ctx, &priorStateData)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	if raw == nil {
-		raw = map[string]any{}
+
+	// Ensure remove_matches_from_default_stream has a value
+	// If it's null/unknown from prior state, set to false (API default)
+	if priorStateData.RemoveMatchesFromDefault.IsNull() || priorStateData.RemoveMatchesFromDefault.IsUnknown() {
+		priorStateData.RemoveMatchesFromDefault = types.BoolValue(false)
 	}
-	if _, ok := raw["remove_matches_from_default_stream"]; !ok {
-		raw["remove_matches_from_default_stream"] = false
-	}
-	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Empty(), raw)...)
+
+	resp.Diagnostics.Append(resp.State.Set(ctx, &priorStateData)...)
 }
 
 func (r *streamResource) Configure(_ context.Context, req resource.ConfigureRequest, _ *resource.ConfigureResponse) {
