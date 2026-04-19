@@ -45,6 +45,11 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - name: Setup Terraform CLI
+        uses: hashicorp/setup-terraform@v3.1.2
+        with:
+          terraform_version: 1.6.6
+          terraform_wrapper: false
       - name: Acceptance tests 5.x/6.x/7.x
         env:
           TIMEOUT: 40m
@@ -62,9 +67,10 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v3.1.2
         with:
           terraform_version: 1.7.5
+          terraform_wrapper: false
       - name: Run state migration test (5→6→7)
         env:
           TIMEOUT: 60m
