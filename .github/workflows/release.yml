@@ -200,9 +200,10 @@ jobs:
           cache: false
 
       - name: Setup Terraform CLI
-        uses: hashicorp/setup-terraform@v3
+        uses: hashicorp/setup-terraform@v3.1.2
         with:
           terraform_version: 1.6.6
+          terraform_wrapper: false
 
       - name: Ensure clean docker compose state
         run: |
