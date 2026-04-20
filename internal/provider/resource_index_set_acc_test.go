@@ -98,7 +98,7 @@ resource "graylog_index_set" "test" {
   description        = "Updated description"
   shards             = 2
   replicas           = 1
-  index_analyzer     = "simple"
+  index_analyzer     = "standard"
   field_type_refresh_interval         = 6000
   index_optimization_disabled         = true
   index_optimization_max_num_segments = 2
@@ -111,7 +111,7 @@ resource "graylog_index_set" "test" {
 					resource.TestCheckResourceAttr("graylog_index_set.test", "description", "Updated description"),
 					resource.TestCheckResourceAttr("graylog_index_set.test", "shards", "2"),
 					resource.TestCheckResourceAttr("graylog_index_set.test", "replicas", "1"),
-					resource.TestCheckResourceAttr("graylog_index_set.test", "index_analyzer", "simple"),
+					resource.TestCheckResourceAttr("graylog_index_set.test", "index_analyzer", "standard"),
 					resource.TestCheckResourceAttr("graylog_index_set.test", "field_type_refresh_interval", "6000"),
 					resource.TestCheckResourceAttr("graylog_index_set.test", "index_optimization_disabled", "true"),
 					resource.TestCheckResourceAttr("graylog_index_set.test", "index_optimization_max_num_segments", "2"),
