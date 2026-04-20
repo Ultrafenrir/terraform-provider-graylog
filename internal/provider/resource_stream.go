@@ -234,18 +234,38 @@ func (r *streamResource) Read(ctx context.Context, req resource.ReadRequest, res
 	}
 	data.IndexSetID = types.StringValue(s.IndexSetID)
 	data.RemoveMatchesFromDefault = types.BoolValue(s.RemoveMatchesFromDefaultStream)
+
+	// Remember which optional fields were present in prior state for rules
+	priorRulesMap := make(map[string]streamRuleModel) // key: field+type+value
+	for _, pr := range data.Rules {
+		key := pr.Field.ValueString() + "|" + pr.Type.String() + "|" + pr.Value.ValueString()
+		priorRulesMap[key] = pr
+	}
+
 	// Read stream rules via API
 	if rules, err := r.client.WithContext(ctx).ListStreamRules(data.ID.ValueString()); err == nil {
 		out := make([]streamRuleModel, 0, len(rules))
 		for _, rrule := range rules {
-			out = append(out, streamRuleModel{
-				ID:          types.StringValue(rrule.ID),
-				Field:       types.StringValue(rrule.Field),
-				Type:        types.Int64Value(int64(rrule.Type)),
-				Value:       types.StringValue(rrule.Value),
-				Inverted:    types.BoolValue(rrule.Inverted),
-				Description: types.StringValue(rrule.Description),
-			})
+			key := rrule.Field + "|" + fmt.Sprintf("%d", rrule.Type) + "|" + rrule.Value
+			priorRule, hadPrior := priorRulesMap[key]
+
+			newRule := streamRuleModel{
+				ID:    types.StringValue(rrule.ID),
+				Field: types.StringValue(rrule.Field),
+				Type:  types.Int64Value(int64(rrule.Type)),
+				Value: types.StringValue(rrule.Value),
+			}
+
+			// Only materialize inverted if it was in prior state
+			if hadPrior && !priorRule.Inverted.IsNull() && !priorRule.Inverted.IsUnknown() {
+				newRule.Inverted = types.BoolValue(rrule.Inverted)
+			}
+			// Only materialize description if it was in prior state
+			if hadPrior && !priorRule.Description.IsNull() && !priorRule.Description.IsUnknown() {
+				newRule.Description = types.StringValue(rrule.Description)
+			}
+
+			out = append(out, newRule)
 		}
 		data.Rules = out
 	} else {

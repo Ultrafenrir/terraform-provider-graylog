@@ -14,7 +14,6 @@ func TestAccOutput_basic(t *testing.T) {
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				ExpectNonEmptyPlan: true,
 				Config: testAccProviderConfig() + `
 data "graylog_index_set_default" "this" {}
 
