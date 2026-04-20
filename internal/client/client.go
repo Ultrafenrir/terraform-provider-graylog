@@ -1847,8 +1847,9 @@ func (c *Client) UpdateIndexSet(id string, is *IndexSet) (*IndexSet, error) {
 	if is.Description != "" {
 		current.Description = is.Description
 	}
-	// Replicas - required field, always update
+	// Replicas and Shards - required fields, always update
 	current.Replicas = is.Replicas
+	current.Shards = is.Shards
 
 	// Обновляем стратегии если они заданы
 	if is.RotationStrategyClass != "" {

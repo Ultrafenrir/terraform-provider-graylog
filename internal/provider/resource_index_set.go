@@ -71,7 +71,7 @@ func (r *indexSetResource) Schema(ctx context.Context, _ resource.SchemaRequest,
 			"shards": schema.Int64Attribute{
 				Optional:    true,
 				Computed:    true,
-				Description: "Number of Elasticsearch shards (must be >= 0). Note: this field is immutable after creation and cannot be changed without recreating the index set.",
+				Description: "Number of Elasticsearch shards (must be >= 0)",
 				Validators: []validator.Int64{
 					int64validator.AtLeast(0),
 				},
@@ -84,7 +84,7 @@ func (r *indexSetResource) Schema(ctx context.Context, _ resource.SchemaRequest,
 					int64validator.AtLeast(0),
 				},
 			},
-			"index_analyzer":                      schema.StringAttribute{Optional: true, Computed: true, Description: "Elasticsearch analyzer to use (defaults to 'standard'). Note: this field is immutable after creation and cannot be changed without recreating the index set."},
+			"index_analyzer":                      schema.StringAttribute{Optional: true, Computed: true, Description: "Elasticsearch analyzer to use (defaults to 'standard')"},
 			"field_type_refresh_interval":         schema.Int64Attribute{Optional: true, Computed: true, Description: "Field type refresh interval in milliseconds (defaults to 5000)"},
 			"index_optimization_max_num_segments": schema.Int64Attribute{Optional: true, Computed: true, Description: "Max number of segments for index optimization (>=1, defaults to 1)"},
 			"index_optimization_disabled":         schema.BoolAttribute{Optional: true, Computed: true, Description: "Disable index optimization (defaults to false)"},
@@ -300,6 +300,7 @@ func (r *indexSetResource) Read(ctx context.Context, req resource.ReadRequest, r
 	// Remember whether nested blocks were present in prior state to decide on materialization
 	hadRotation := data.Rotation != nil && !data.Rotation.Class.IsNull() && !data.Rotation.Class.IsUnknown()
 	hadRetention := data.Retention != nil && !data.Retention.Class.IsNull() && !data.Retention.Class.IsUnknown()
+
 	is, err := r.client.WithContext(ctx).GetIndexSet(data.ID.ValueString())
 	if err != nil {
 		if errors.Is(err, client.ErrNotFound) {
@@ -311,6 +312,7 @@ func (r *indexSetResource) Read(ctx context.Context, req resource.ReadRequest, r
 		return
 	}
 	applyIndexSetReadState(ctx, &data, is)
+
 	// Don't materialize rotation/retention blocks if they weren't in prior state
 	if !hadRotation {
 		data.Rotation = nil

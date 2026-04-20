@@ -92,15 +92,14 @@ resource "graylog_index_set" "test" {
 			},
 			{
 				// Test update - это должно использовать PUT без 405 ошибок
-				// shards и index_analyzer нельзя изменить после создания (immutable в Elasticsearch)
 				Config: testAccProviderConfig() + `
 resource "graylog_index_set" "test" {
   title              = "acc-update-index-modified"
   index_prefix       = "acc-update"
   description        = "Updated description"
-  shards             = 1
+  shards             = 2
   replicas           = 1
-  index_analyzer     = "standard"
+  index_analyzer     = "simple"
   field_type_refresh_interval         = 6000
   index_optimization_disabled         = true
   index_optimization_max_num_segments = 2
@@ -111,9 +110,9 @@ resource "graylog_index_set" "test" {
 					resource.TestCheckResourceAttrSet("graylog_index_set.test", "id"),
 					resource.TestCheckResourceAttr("graylog_index_set.test", "title", "acc-update-index-modified"),
 					resource.TestCheckResourceAttr("graylog_index_set.test", "description", "Updated description"),
-					resource.TestCheckResourceAttr("graylog_index_set.test", "shards", "1"),
+					resource.TestCheckResourceAttr("graylog_index_set.test", "shards", "2"),
 					resource.TestCheckResourceAttr("graylog_index_set.test", "replicas", "1"),
-					resource.TestCheckResourceAttr("graylog_index_set.test", "index_analyzer", "standard"),
+					resource.TestCheckResourceAttr("graylog_index_set.test", "index_analyzer", "simple"),
 					resource.TestCheckResourceAttr("graylog_index_set.test", "field_type_refresh_interval", "6000"),
 					resource.TestCheckResourceAttr("graylog_index_set.test", "index_optimization_disabled", "true"),
 					resource.TestCheckResourceAttr("graylog_index_set.test", "index_optimization_max_num_segments", "2"),
