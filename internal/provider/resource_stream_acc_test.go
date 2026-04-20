@@ -122,4 +122,3 @@ resource "graylog_stream" "test" {
 		},
 	})
 }
-
