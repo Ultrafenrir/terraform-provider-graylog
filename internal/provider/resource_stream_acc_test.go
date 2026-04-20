@@ -51,3 +51,4 @@ resource "graylog_stream" "s" {
 		},
 	})
 }
+

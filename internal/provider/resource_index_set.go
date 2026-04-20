@@ -11,6 +11,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
 	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -257,15 +258,34 @@ func (r *indexSetResource) Create(ctx context.Context, req resource.CreateReques
 	wantRotation := data.Rotation != nil && !data.Rotation.Class.IsNull() && !data.Rotation.Class.IsUnknown()
 	wantRetention := data.Retention != nil && !data.Retention.Class.IsNull() && !data.Retention.Class.IsUnknown()
 
+	// Remember planned config keys before applying API response
+	var plannedRotationKeys, plannedRetentionKeys []string
+	if wantRotation && !data.Rotation.Config.IsNull() {
+		for k := range data.Rotation.Config.Elements() {
+			plannedRotationKeys = append(plannedRotationKeys, k)
+		}
+	}
+	if wantRetention && !data.Retention.Config.IsNull() {
+		for k := range data.Retention.Config.Elements() {
+			plannedRetentionKeys = append(plannedRetentionKeys, k)
+		}
+	}
+
 	// Apply all fields from API response
 	applyIndexSetReadState(ctx, &data, is)
 
 	// Don't materialize rotation/retention blocks if user didn't specify them
 	if !wantRotation {
 		data.Rotation = nil
+	} else if len(plannedRotationKeys) > 0 && data.Rotation != nil {
+		// Filter config to only include planned keys
+		data.Rotation.Config = filterMapKeys(ctx, data.Rotation.Config, plannedRotationKeys)
 	}
 	if !wantRetention {
 		data.Retention = nil
+	} else if len(plannedRetentionKeys) > 0 && data.Retention != nil {
+		// Filter config to only include planned keys
+		data.Retention.Config = filterMapKeys(ctx, data.Retention.Config, plannedRetentionKeys)
 	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
@@ -365,15 +385,34 @@ func (r *indexSetResource) Update(ctx context.Context, req resource.UpdateReques
 	wantRotation := plan.Rotation != nil && !plan.Rotation.Class.IsNull() && !plan.Rotation.Class.IsUnknown()
 	wantRetention := plan.Retention != nil && !plan.Retention.Class.IsNull() && !plan.Retention.Class.IsUnknown()
 
+	// Remember planned config keys before applying API response
+	var plannedRotationKeys, plannedRetentionKeys []string
+	if wantRotation && !plan.Rotation.Config.IsNull() {
+		for k := range plan.Rotation.Config.Elements() {
+			plannedRotationKeys = append(plannedRotationKeys, k)
+		}
+	}
+	if wantRetention && !plan.Retention.Config.IsNull() {
+		for k := range plan.Retention.Config.Elements() {
+			plannedRetentionKeys = append(plannedRetentionKeys, k)
+		}
+	}
+
 	// Apply all fields from API response
 	applyIndexSetReadState(ctx, &plan, is)
 
 	// Don't materialize rotation/retention blocks if user didn't specify them
 	if !wantRotation {
 		plan.Rotation = nil
+	} else if len(plannedRotationKeys) > 0 && plan.Rotation != nil {
+		// Filter config to only include planned keys
+		plan.Rotation.Config = filterMapKeys(ctx, plan.Rotation.Config, plannedRotationKeys)
 	}
 	if !wantRetention {
 		plan.Retention = nil
+	} else if len(plannedRetentionKeys) > 0 && plan.Retention != nil {
+		// Filter config to only include planned keys
+		plan.Retention.Config = filterMapKeys(ctx, plan.Retention.Config, plannedRetentionKeys)
 	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
@@ -526,4 +565,35 @@ func validateIndexSet(m *indexSetModel) (d diag.Diagnostics) {
 		d.AddAttributeError(path.Root("replicas"), "Invalid replicas", "'replicas' must be >= 0.")
 	}
 	return
+}
+
+// filterMapKeys returns a new map containing only the specified keys from the original map
+func filterMapKeys(ctx context.Context, original types.Map, keysToKeep []string) types.Map {
+	if original.IsNull() || original.IsUnknown() {
+		return original
+	}
+
+	elements := original.Elements()
+	if len(elements) == 0 || len(keysToKeep) == 0 {
+		return original
+	}
+
+	keepSet := make(map[string]bool, len(keysToKeep))
+	for _, k := range keysToKeep {
+		keepSet[k] = true
+	}
+
+	filtered := make(map[string]attr.Value, len(keysToKeep))
+	for k, v := range elements {
+		if keepSet[k] {
+			filtered[k] = v
+		}
+	}
+
+	result, diags := types.MapValue(types.StringType, filtered)
+	if diags.HasError() {
+		// If filtering fails, return original
+		return original
+	}
+	return result
 }

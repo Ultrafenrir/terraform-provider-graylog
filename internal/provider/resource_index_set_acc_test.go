@@ -102,3 +102,82 @@ resource "graylog_index_set" "test" {
 		},
 	})
 }
+
+func TestAccIndexSet_rotationRetentionConfig(t *testing.T) {
+	resource.ParallelTest(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				// Create with minimal rotation/retention config
+				// API will return extra fields (type, max_rotation_period, etc)
+				// Provider should NOT include them in state
+				Config: testAccProviderConfig() + `
+resource "graylog_index_set" "test" {
+  title        = "acc-config-filter"
+  description  = "Test config filter"
+  index_prefix = "acc-cfg-filter"
+  shards       = 1
+  replicas     = 0
+
+  rotation {
+    class = "org.graylog2.indexer.rotation.strategies.MessageCountRotationStrategy"
+    config = {
+      max_docs_per_index = "1000000"
+    }
+  }
+
+  retention {
+    class = "org.graylog2.indexer.retention.strategies.DeletionRetentionStrategy"
+    config = {
+      max_number_of_indices = "3"
+    }
+  }
+}
+`,
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttrSet("graylog_index_set.test", "id"),
+					resource.TestCheckResourceAttr("graylog_index_set.test", "rotation.config.max_docs_per_index", "1000000"),
+					resource.TestCheckResourceAttr("graylog_index_set.test", "retention.config.max_number_of_indices", "3"),
+					// These fields should NOT appear in state (API returns them but we filter)
+					resource.TestCheckNoResourceAttr("graylog_index_set.test", "rotation.config.type"),
+					resource.TestCheckNoResourceAttr("graylog_index_set.test", "rotation.config.max_rotation_period"),
+					resource.TestCheckNoResourceAttr("graylog_index_set.test", "rotation.config.rotate_empty_index_set"),
+					resource.TestCheckNoResourceAttr("graylog_index_set.test", "retention.config.type"),
+				),
+			},
+			{
+				// Update retention config - should not show extra fields appearing/disappearing
+				Config: testAccProviderConfig() + `
+resource "graylog_index_set" "test" {
+  title        = "acc-config-filter"
+  description  = "Test config filter"
+  index_prefix = "acc-cfg-filter"
+  shards       = 1
+  replicas     = 0
+
+  rotation {
+    class = "org.graylog2.indexer.rotation.strategies.MessageCountRotationStrategy"
+    config = {
+      max_docs_per_index = "1000000"
+    }
+  }
+
+  retention {
+    class = "org.graylog2.indexer.retention.strategies.DeletionRetentionStrategy"
+    config = {
+      max_number_of_indices = "4"
+    }
+  }
+}
+`,
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr("graylog_index_set.test", "retention.config.max_number_of_indices", "4"),
+					// Still should not have extra fields
+					resource.TestCheckNoResourceAttr("graylog_index_set.test", "rotation.config.type"),
+					resource.TestCheckNoResourceAttr("graylog_index_set.test", "retention.config.type"),
+				),
+			},
+		},
+	})
+}
