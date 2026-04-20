@@ -91,7 +91,6 @@ resource "graylog_index_set" "test" {
 				),
 			},
 			{
-				// Test update - это должно использовать PUT без 405 ошибок
 				Config: testAccProviderConfig() + `
 resource "graylog_index_set" "test" {
   title              = "acc-update-index-modified"
@@ -116,6 +115,30 @@ resource "graylog_index_set" "test" {
 					resource.TestCheckResourceAttr("graylog_index_set.test", "field_type_refresh_interval", "6000"),
 					resource.TestCheckResourceAttr("graylog_index_set.test", "index_optimization_disabled", "true"),
 					resource.TestCheckResourceAttr("graylog_index_set.test", "index_optimization_max_num_segments", "2"),
+				),
+			},
+			{
+				Config: testAccProviderConfig() + `
+resource "graylog_index_set" "test" {
+  title              = "acc-update-index-modified"
+  index_prefix       = "acc-update"
+  description        = "Updated description"
+  shards             = 3
+  replicas           = 2
+  index_analyzer     = "standard"
+  field_type_refresh_interval         = 7000
+  index_optimization_disabled         = false
+  index_optimization_max_num_segments = 3
+  default            = false
+}
+`,
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttrSet("graylog_index_set.test", "id"),
+					resource.TestCheckResourceAttr("graylog_index_set.test", "shards", "3"),
+					resource.TestCheckResourceAttr("graylog_index_set.test", "replicas", "2"),
+					resource.TestCheckResourceAttr("graylog_index_set.test", "field_type_refresh_interval", "7000"),
+					resource.TestCheckResourceAttr("graylog_index_set.test", "index_optimization_disabled", "false"),
+					resource.TestCheckResourceAttr("graylog_index_set.test", "index_optimization_max_num_segments", "3"),
 				),
 			},
 		},
