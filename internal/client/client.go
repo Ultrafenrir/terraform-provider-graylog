@@ -1580,8 +1580,8 @@ type IndexSet struct {
 	Title       string `json:"title"`
 	Description string `json:"description,omitempty"`
 	IndexPrefix string `json:"index_prefix"`
-	Shards      int    `json:"shards,omitempty"`
-	Replicas    int    `json:"replicas"` // Required by Graylog 7.x, removed omitempty
+	Shards      int    `json:"shards"`
+	Replicas    int    `json:"replicas"`
 	// Legacy simple names kept for backward compatibility in provider code.
 	// Graylog 5.x+ requires rotation_strategy_class and rotation/retention config objects.
 	// Do not marshal/unmarshal these legacy simple fields to avoid conflicts with full config objects.
@@ -1847,7 +1847,8 @@ func (c *Client) UpdateIndexSet(id string, is *IndexSet) (*IndexSet, error) {
 	if is.Description != "" {
 		current.Description = is.Description
 	}
-	// Replicas - required field, always update
+	// Shards and Replicas - always update
+	current.Shards = is.Shards
 	current.Replicas = is.Replicas
 
 	// Обновляем стратегии если они заданы
@@ -1864,18 +1865,12 @@ func (c *Client) UpdateIndexSet(id string, is *IndexSet) (*IndexSet, error) {
 		current.RetentionStrategyConfig = is.RetentionStrategyConfig
 	}
 
-	// Обновляем опциональные поля если они заданы
-	if is.IndexAnalyzer != "" {
-		current.IndexAnalyzer = is.IndexAnalyzer
-	}
-	if is.FieldTypeRefreshInterval > 0 {
-		current.FieldTypeRefreshInterval = is.FieldTypeRefreshInterval
-	}
-	if is.IndexOptimizationMaxNumSegments > 0 {
-		current.IndexOptimizationMaxNumSegments = is.IndexOptimizationMaxNumSegments
-	}
-	// IndexOptimizationDisabled - булево поле, обновляем всегда из запроса
+	// Update all configurable fields
+	current.IndexAnalyzer = is.IndexAnalyzer
+	current.FieldTypeRefreshInterval = is.FieldTypeRefreshInterval
+	current.IndexOptimizationMaxNumSegments = is.IndexOptimizationMaxNumSegments
 	current.IndexOptimizationDisabled = is.IndexOptimizationDisabled
+	current.Default = is.Default
 
 	// Установка дефолтных значений для стратегий если они пустые
 	if current.RotationStrategyClass == "" {

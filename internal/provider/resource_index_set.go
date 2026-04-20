@@ -300,6 +300,7 @@ func (r *indexSetResource) Read(ctx context.Context, req resource.ReadRequest, r
 	// Remember whether nested blocks were present in prior state to decide on materialization
 	hadRotation := data.Rotation != nil && !data.Rotation.Class.IsNull() && !data.Rotation.Class.IsUnknown()
 	hadRetention := data.Retention != nil && !data.Retention.Class.IsNull() && !data.Retention.Class.IsUnknown()
+
 	is, err := r.client.WithContext(ctx).GetIndexSet(data.ID.ValueString())
 	if err != nil {
 		if errors.Is(err, client.ErrNotFound) {
@@ -311,6 +312,7 @@ func (r *indexSetResource) Read(ctx context.Context, req resource.ReadRequest, r
 		return
 	}
 	applyIndexSetReadState(ctx, &data, is)
+
 	// Don't materialize rotation/retention blocks if they weren't in prior state
 	if !hadRotation {
 		data.Rotation = nil
