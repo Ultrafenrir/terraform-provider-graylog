@@ -3,8 +3,11 @@
 package provider
 
 import (
-	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
+	"strconv"
 	"testing"
+
+	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
+	"github.com/hashicorp/terraform-plugin-testing/plancheck"
 )
 
 func TestAccIndexSet_basic(t *testing.T) {
@@ -91,12 +94,14 @@ resource "graylog_index_set" "test" {
 				),
 			},
 			{
+				// shards/index_prefix/index_analyzer are immutable (RequiresReplace) and left
+				// unchanged here — this step exercises a genuine in-place update.
 				Config: testAccProviderConfig() + `
 resource "graylog_index_set" "test" {
   title              = "acc-update-index-modified"
   index_prefix       = "acc-update"
   description        = "Updated description"
-  shards             = 2
+  shards             = 1
   replicas           = 1
   index_analyzer     = "standard"
   field_type_refresh_interval         = 6000
@@ -105,11 +110,16 @@ resource "graylog_index_set" "test" {
   default            = false
 }
 `,
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{
+						plancheck.ExpectResourceAction("graylog_index_set.test", plancheck.ResourceActionUpdate),
+					},
+				},
 				Check: resource.ComposeTestCheckFunc(
 					resource.TestCheckResourceAttrSet("graylog_index_set.test", "id"),
 					resource.TestCheckResourceAttr("graylog_index_set.test", "title", "acc-update-index-modified"),
 					resource.TestCheckResourceAttr("graylog_index_set.test", "description", "Updated description"),
-					resource.TestCheckResourceAttr("graylog_index_set.test", "shards", "2"),
+					resource.TestCheckResourceAttr("graylog_index_set.test", "shards", "1"),
 					resource.TestCheckResourceAttr("graylog_index_set.test", "replicas", "1"),
 					resource.TestCheckResourceAttr("graylog_index_set.test", "index_analyzer", "standard"),
 					resource.TestCheckResourceAttr("graylog_index_set.test", "field_type_refresh_interval", "6000"),
@@ -122,8 +132,8 @@ resource "graylog_index_set" "test" {
 resource "graylog_index_set" "test" {
   title              = "acc-update-index-modified"
   index_prefix       = "acc-update"
-  description        = "Updated description"
-  shards             = 3
+  description        = ""
+  shards             = 1
   replicas           = 2
   index_analyzer     = "standard"
   field_type_refresh_interval         = 7000
@@ -132,14 +142,75 @@ resource "graylog_index_set" "test" {
   default            = false
 }
 `,
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{
+						plancheck.ExpectResourceAction("graylog_index_set.test", plancheck.ResourceActionUpdate),
+					},
+				},
 				Check: resource.ComposeTestCheckFunc(
 					resource.TestCheckResourceAttrSet("graylog_index_set.test", "id"),
-					resource.TestCheckResourceAttr("graylog_index_set.test", "shards", "3"),
+					resource.TestCheckResourceAttr("graylog_index_set.test", "description", ""),
 					resource.TestCheckResourceAttr("graylog_index_set.test", "replicas", "2"),
 					resource.TestCheckResourceAttr("graylog_index_set.test", "field_type_refresh_interval", "7000"),
 					resource.TestCheckResourceAttr("graylog_index_set.test", "index_optimization_disabled", "false"),
 					resource.TestCheckResourceAttr("graylog_index_set.test", "index_optimization_max_num_segments", "3"),
 				),
+			},
+		},
+	})
+}
+
+// TestAccIndexSet_immutableFieldsForceReplacement verifies that index_prefix, shards, and
+// index_analyzer are truly immutable: changing any of them must plan a replace, not a silent
+// no-op update (the underlying bug this guards against: index_prefix changes used to be dropped
+// entirely by UpdateIndexSet, producing a permanent diff that never converged).
+func TestAccIndexSet_immutableFieldsForceReplacement(t *testing.T) {
+	baseConfig := func(prefix, analyzer string, shards int) string {
+		return testAccProviderConfig() + `
+resource "graylog_index_set" "immutable" {
+  title          = "acc-immutable-index"
+  index_prefix   = "` + prefix + `"
+  shards         = ` + strconv.Itoa(shards) + `
+  replicas       = 0
+  index_analyzer = "` + analyzer + `"
+}
+`
+	}
+
+	resource.ParallelTest(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: baseConfig("acc-immutable", "standard", 1),
+				Check:  resource.TestCheckResourceAttrSet("graylog_index_set.immutable", "id"),
+			},
+			{
+				// Changing index_prefix must force replacement.
+				Config: baseConfig("acc-immutable-renamed", "standard", 1),
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{
+						plancheck.ExpectResourceAction("graylog_index_set.immutable", plancheck.ResourceActionReplace),
+					},
+				},
+			},
+			{
+				// Changing shards must force replacement.
+				Config: baseConfig("acc-immutable-renamed", "standard", 2),
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{
+						plancheck.ExpectResourceAction("graylog_index_set.immutable", plancheck.ResourceActionReplace),
+					},
+				},
+			},
+			{
+				// Changing index_analyzer must force replacement.
+				Config: baseConfig("acc-immutable-renamed", "whitespace", 2),
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{
+						plancheck.ExpectResourceAction("graylog_index_set.immutable", plancheck.ResourceActionReplace),
+					},
+				},
 			},
 		},
 	})

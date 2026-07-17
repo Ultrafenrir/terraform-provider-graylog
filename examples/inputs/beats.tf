@@ -12,13 +12,12 @@ resource "graylog_input" "beats" {
   type   = "org.graylog2.inputs.beats.BeatsInput"
   global = true
 
-  configuration = {
+  configuration = jsonencode({
     bind_address     = "0.0.0.0"
     port             = 5044
     recv_buffer_size = 1048576
     tls_enable       = false
-  }
+  })
 
-  # Optional extractors (free-form)
-  extractors = []
+  # No extractors on this input — add "extractor" blocks here if needed.
 }

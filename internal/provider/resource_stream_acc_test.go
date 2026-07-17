@@ -67,6 +67,7 @@ resource "graylog_stream" "test" {
   index_set_id                    = data.graylog_index_set_default.this.id
   disabled                        = false
   remove_matches_from_default_stream = false
+  matching_type                   = "AND"
 
   rule {
     field       = "source"
@@ -83,6 +84,7 @@ resource "graylog_stream" "test" {
 					resource.TestCheckResourceAttr("graylog_stream.test", "description", "Initial stream"),
 					resource.TestCheckResourceAttr("graylog_stream.test", "disabled", "false"),
 					resource.TestCheckResourceAttr("graylog_stream.test", "remove_matches_from_default_stream", "false"),
+					resource.TestCheckResourceAttr("graylog_stream.test", "matching_type", "AND"),
 					resource.TestCheckResourceAttr("graylog_stream.test", "rule.0.field", "source"),
 					resource.TestCheckResourceAttr("graylog_stream.test", "rule.0.value", "initial"),
 					resource.TestCheckResourceAttr("graylog_stream.test", "rule.0.inverted", "false"),
@@ -98,6 +100,7 @@ resource "graylog_stream" "test" {
   index_set_id                    = data.graylog_index_set_default.this.id
   disabled                        = true
   remove_matches_from_default_stream = true
+  matching_type                   = "OR"
 
   rule {
     field       = "message"
@@ -114,6 +117,7 @@ resource "graylog_stream" "test" {
 					resource.TestCheckResourceAttr("graylog_stream.test", "description", "Updated stream"),
 					resource.TestCheckResourceAttr("graylog_stream.test", "disabled", "true"),
 					resource.TestCheckResourceAttr("graylog_stream.test", "remove_matches_from_default_stream", "true"),
+					resource.TestCheckResourceAttr("graylog_stream.test", "matching_type", "OR"),
 					resource.TestCheckResourceAttr("graylog_stream.test", "rule.0.field", "message"),
 					resource.TestCheckResourceAttr("graylog_stream.test", "rule.0.value", "updated"),
 					resource.TestCheckResourceAttr("graylog_stream.test", "rule.0.inverted", "true"),

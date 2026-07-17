@@ -94,15 +94,15 @@ resource "graylog_index_set" "rotate_by_time" {
 ## Argument Reference
 
 - `title` (String, Required) — Index set title.
-- `description` (String, Optional) — Description.
-- `index_prefix` (String, Required) — Index name prefix (lowercase letters, numbers, dash, underscore).
-- `shards` (Number, Optional) — Number of Elasticsearch shards (must be >= 0).
+- `description` (String, Optional) — Description. Set it to `""` (or remove it) to clear an existing description.
+- `index_prefix` (String, Required) — Index name prefix (lowercase letters, numbers, dash, underscore). **Immutable**: changing it forces recreation of the index set (Elasticsearch/OpenSearch derive physical index names from it).
+- `shards` (Number, Optional) — Number of Elasticsearch shards (must be >= 0). **Immutable**: changing it forces recreation of the index set.
 - `replicas` (Number, Optional) — Number of Elasticsearch replicas (must be >= 0).
-- `index_analyzer` (String, Optional) — Elasticsearch analyzer to use (defaults to 'standard').
+- `index_analyzer` (String, Optional) — Elasticsearch analyzer to use (defaults to 'standard'). **Immutable**: changing it forces recreation of the index set.
 - `field_type_refresh_interval` (Number, Optional) — Field type refresh interval in milliseconds (defaults to 5000).
 - `index_optimization_max_num_segments` (Number, Optional) — Max number of segments for index optimization (>=1, defaults to 1).
 - `index_optimization_disabled` (Boolean, Optional) — Disable index optimization (defaults to false).
-- `default` (Boolean, Optional) — Whether this is the default index set.
+- `default` (Boolean, Optional) — Whether this is the default index set. Note: this is sent as a plain field on the create/update body; some Graylog versions may require a dedicated "set default" API call to actually change which index set is default — verify against your server before relying on this to switch defaults.
 - `timeouts` (Block, Optional) — Customize create/update/delete timeouts.
 
 ### rotation (Block) — Graylog 5+

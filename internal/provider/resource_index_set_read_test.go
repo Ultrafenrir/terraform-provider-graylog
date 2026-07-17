@@ -51,6 +51,43 @@ func TestIndexSet_NormalizesDefaultsAndFiltersTypeField(t *testing.T) {
 	}
 }
 
+// Guards the fix for "Provider produced inconsistent result after apply: .description: was
+// null, but now cty.StringVal(\"\")" — an unconfigured (null) description must stay null when
+// the server reports an empty description, while an explicitly-cleared ("") description must
+// stay "" (both are valid Terraform-side representations of "no description", and the server
+// can't tell them apart, so applyIndexSetReadState must consult the caller's prior value).
+func TestIndexSet_DescriptionNullVsEmptyPreserved(t *testing.T) {
+	is := &client.IndexSet{ID: "id1", Title: "T", IndexPrefix: "p", Description: ""}
+
+	t.Run("unconfigured stays null", func(t *testing.T) {
+		data := indexSetModel{ID: types.StringValue("id1"), Description: types.StringNull()}
+		applyIndexSetReadState(ctxBackground(), &data, is)
+		if !data.Description.IsNull() {
+			t.Fatalf("expected description to stay null, got %q", data.Description.ValueString())
+		}
+	})
+
+	t.Run("explicitly cleared stays empty string", func(t *testing.T) {
+		data := indexSetModel{ID: types.StringValue("id1"), Description: types.StringValue("")}
+		applyIndexSetReadState(ctxBackground(), &data, is)
+		if data.Description.IsNull() {
+			t.Fatal("expected description to stay \"\", got null")
+		}
+		if data.Description.ValueString() != "" {
+			t.Fatalf("expected description \"\", got %q", data.Description.ValueString())
+		}
+	})
+
+	t.Run("non-empty server value always wins", func(t *testing.T) {
+		withDesc := &client.IndexSet{ID: "id1", Title: "T", IndexPrefix: "p", Description: "hello"}
+		data := indexSetModel{ID: types.StringValue("id1"), Description: types.StringNull()}
+		applyIndexSetReadState(ctxBackground(), &data, withDesc)
+		if data.Description.ValueString() != "hello" {
+			t.Fatalf("expected description 'hello', got %q", data.Description.ValueString())
+		}
+	})
+}
+
 // маленький помощник, чтобы не тащить context в тест
 func ctxBackground() contextLike { return contextLike{} }
 

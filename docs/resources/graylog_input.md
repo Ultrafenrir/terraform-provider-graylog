@@ -7,31 +7,36 @@ description: |-
 
 # graylog_input (Resource)
 
-Manages a Graylog input. Part of the Graylog Terraform Provider for Graylog automation. Compatible with Graylog v5/v6/v7. The `configuration` attribute is passed as JSON string (use `jsonencode({...})`) supporting strings, numbers, booleans, lists and nested objects, covering all input types (including Kafka inputs). Extractors can be managed alongside the input via a JSON-encoded list.
+Manages a Graylog input. Part of the Graylog Terraform Provider for Graylog automation. Compatible with Graylog v5/v6/v7. The `configuration` attribute is passed as JSON string (use `jsonencode({...})`) supporting strings, numbers, booleans, lists and nested objects, covering all input types (including Kafka inputs). Extractors are managed as structured `extractor` blocks.
 
 ## Example Usage
 
 ```hcl
-resource "graylog_input" "kafka_json" {
-  title  = "kafka-json"
-  type   = "org.graylog.plugins.kafka.input.KafkaJsonInput"
+resource "graylog_input" "kafka_raw" {
+  title  = "kafka-raw"
+  type   = "org.graylog2.inputs.raw.kafka.RawKafkaInput"
   global = true
 
   configuration = jsonencode({
-    bootstrap_servers        = ["localhost:9092"]
-    topic_filter             = "logs-*"
-    allow_auto_create_topics = false
+    legacy_mode      = false # required to use bootstrap_server below instead of ZooKeeper
+    bootstrap_server = "localhost:9092"
+    topic_filter     = "^logs-.*$" # regex
+    fetch_min_bytes  = 1
+    fetch_wait_max   = 100
+    threads          = 2
+    group_id         = "graylog-kafka-raw"
   })
 
-  extractors = jsonencode([
-    {
-      type         = "regex"
-      title        = "extract user"
-      target_field = "user"
-      source_field = "message"
-      regex_value  = "user=(\\w+)"
-    }
-  ])
+  extractor {
+    title          = "extract user"
+    extractor_type = "regex"
+    source_field   = "message"
+    target_field   = "user"
+
+    extractor_config = jsonencode({
+      regex_value = "user=(\\w+)"
+    })
+  }
 }
 ```
 
@@ -39,10 +44,23 @@ resource "graylog_input" "kafka_json" {
 
 - `title` (String, Required) — Input title.
 - `type` (String, Required) — Fully qualified input class (e.g. `org.graylog2.inputs.syslog.udp.SyslogUDPInput`).
-- `global` (Boolean, Optional) — Whether the input is global.
+- `global` (Boolean, Optional, Computed) — Whether the input is global. Defaults to `false`.
 - `node` (String, Optional) — Node ID to run the input on when not global.
-- `configuration` (String(JSON), Optional) — JSON-encoded configuration object. Values may be strings, numbers, booleans, lists, or nested objects.
-- `extractors` (String(JSON), Optional) — JSON-encoded list of extractor objects. Use either top-level fields or a nested `data` map.
+- `configuration` (String(JSON), Optional, **Sensitive**) — JSON-encoded configuration object. Values may be strings, numbers, booleans, lists, or nested objects. Marked sensitive because many input types (notably Kafka's `custom_properties`, see below) embed credentials directly in this blob; the whole attribute is hidden in `terraform plan`/`apply` output as a result.
+- `extractor` (Block, Optional, repeatable) — An extractor attached to this input. Extractors are reconciled by identity on update: unchanged extractors are left alone, only added/removed/changed ones are created or deleted.
+  - `title` (String, Required) — Extractor title.
+  - `extractor_type` (String, Required) — e.g. `regex`, `grok`, `substring`, `split_and_index`, `copy_input`, `regex_replace`, `json`, `lookup_table` (availability depends on Graylog version/plugins).
+  - `source_field` (String, Required) — Message field to read from.
+  - `target_field` (String, Optional) — Message field to write the extracted value to.
+  - `cursor_strategy` (String, Optional, Computed) — `copy` (leave the source field untouched) or `cut` (remove the matched part). Defaults to `copy`.
+  - `extractor_config` (String(JSON), Optional) — JSON-encoded extractor-type-specific configuration (e.g. `{"regex_value": "..."}` for `regex`, `{"grok_pattern": "..."}` for `grok`).
+  - `condition_type` (String, Optional, Computed) — `none` (always run), `string` (source field contains `condition_value`), or `regex` (source field matches `condition_value`). Defaults to `none`.
+  - `condition_value` (String, Optional) — Required when `condition_type` is not `none`.
+  - `order` (Number, Optional, Computed) — Execution order; if omitted, Graylog assigns the next available position.
+  - `converter` (Block, Optional, repeatable) — Converters applied to the extracted value, in order.
+    - `type` (String, Required) — e.g. `numeric`, `lowercase`, `uppercase`, `hash`, `date`, `csv`, `tokenizer`, `ip_anonymizer`, `splitandcount`, `syslog_pri`.
+    - `config` (String(JSON), Optional) — JSON-encoded converter-specific configuration.
+  - `id` (Computed) — Extractor ID.
 - `timeouts` (Block, Optional) — Customize create/update/delete timeouts.
 
 ## Attributes Reference
@@ -57,69 +75,60 @@ terraform import graylog_input.i <input_id>
 
 ---
 
-## Kafka Raw input configuration
+## Kafka input configuration
 
-Kafka Raw Input class: `org.graylog2.inputs.raw.kafka.RawKafkaInput`.
+Kafka Raw Input class: `org.graylog2.inputs.raw.kafka.RawKafkaInput`. Three other Kafka-backed
+inputs (`org.graylog.plugins.cef.input.CEFKafkaInput`, `org.graylog2.inputs.syslog.kafka.SyslogKafkaInput`,
+`org.graylog2.inputs.gelf.kafka.GELFKafkaInput`) share the exact same connection/`custom_properties`
+shape below, plus their own codec-specific fields.
 
-The `configuration` map accepts common Kafka consumer options (depending on Graylog/plugin version). Below is a consolidated list of commonly supported keys with brief descriptions. Types are indicative; pass values in appropriate Terraform types (string/int/bool/list(string)). Some keys may not be available in all Graylog versions.
+**These field names were verified live against Graylog 5.0.13, 6.0.14, and 7.0.10** via
+`GET /api/system/inputs/types/org.graylog2.inputs.raw.kafka.RawKafkaInput` on each — the schema is
+identical across all three (same fields, same requiredness), with one behavioral difference noted
+below (`legacy_mode`'s default). An earlier version of this doc (and `examples/inputs/kafka_raw.tf`)
+documented a different, incorrect key set (`bootstrap_servers` as a list, `topics`,
+`security_protocol`, `ssl_truststore_location`, `sasl_mechanism`, etc.) that Graylog's native Kafka
+input has never supported on any of these versions — those keys were silently ignored by the
+backend and had no effect. If you used any of those keys, switch to the fields below.
 
-### Connection / topics
-- `bootstrap_servers` (list(string), required) — Kafka brokers, e.g. `["kafka:9092"]`.
-- `topics` (list(string), optional) — Explicit list of topics to subscribe to.
-- `topic_pattern` (string, optional) — Regex pattern of topics to subscribe to (mutually exclusive with `topics`).
-- `topic_filter` (string, optional) — Wildcard filter supported in some Graylog versions; alternative to `topic_pattern`.
+### Connection / consumer
+- `legacy_mode` (bool, optional) — `true` uses the old ZooKeeper-based consumer API (pre-Graylog 3.3) and ignores `bootstrap_server`/`custom_properties` entirely. **Always set this explicitly to `false`** to use the modern Kafka client — required for `bootstrap_server` and any SSL/SASL settings in `custom_properties` to take effect. Its default differs by version — `true` on Graylog 5.x/6.x, `false` on 7.x (verified live) — so don't rely on the default either way; set it explicitly. Forgetting this is the most common way for Kafka SSL/SASL configuration to appear to do nothing.
+- `bootstrap_server` (string, optional) — Comma-separated list of brokers as a single string, e.g. `"host1:9092,host2:9092"` — **not** a Terraform list. Not used in legacy mode.
+- `zookeeper` (string, optional) — ZooKeeper `host:port`. Only used in legacy mode.
+- `topic_filter` (string, **required**) — Regular expression; every topic matching it is consumed. This is a regex, not a literal topic name or a glob.
+- `fetch_min_bytes` (number, required) — Minimum batch size (bytes) to wait for before fetching.
+- `fetch_wait_max` (number, required) — Max wait time (ms) for a batch to reach `fetch_min_bytes` before fetching anyway.
+- `threads` (number, required) — Processor threads; use one per Kafka topic partition.
+- `offset_reset` (string, optional, default `"largest"`) — `"largest"` (latest) or `"smallest"` (earliest) — what to do when there's no valid offset.
+- `group_id` (string, optional, default `"graylog2"`) — Consumer group ID.
+- `override_source` (string, optional) — Override the message `source` field.
+- `charset_name` (string, optional, default `"UTF-8"`) — Message encoding.
+- `throttling_allowed` (bool, optional, default `false`) — Pause reading from this input if Graylog can't keep up with message load.
 
-### Consumer core
-- `group_id` (string) — Consumer group id.
-- `client_id` (string) — Optional client identifier.
-- `auto_offset_reset` (string) — Behavior when no offset is present: `earliest` | `latest` | `none`.
-- `enable_auto_commit` (bool) — Enable periodic commits of offsets (if exposed by version).
-- `auto_commit_interval_ms` (int) — Interval for auto commits.
-- `allow_auto_create_topics` (bool) — Allow broker to auto-create topics.
+### `custom_properties` — SSL/SASL, keystores, and anything else
 
-### Poll/fetch and throughput
-- `max_poll_records` (int) — Max records returned in a single poll.
-- `max_poll_interval_ms` (int) — Max delay between polls before rebalancing.
-- `poll_timeout_ms` (int) — Poll timeout.
-- `fetch_min_bytes` (int) — Minimum fetch size in bytes.
-- `fetch_max_bytes` (int) — Max bytes fetched per request.
-- `max_partition_fetch_bytes` (int) — Max bytes fetched per partition per request.
-- `fetch_max_wait_ms` (int) — Max wait time for fetch when data is insufficient.
+There is no dedicated field per Kafka client property (no `ssl_truststore_location`,
+`sasl_mechanism`, `security_protocol`, etc.). Instead, everything beyond the fields above goes
+into a single `custom_properties` string: **newline-separated `key=value` pairs, using Kafka's
+own dotted property names** (e.g. `ssl.truststore.location`, not `ssl_truststore_location`).
+Graylog itself marks this field `is_sensitive` server-side — matching that, this provider marks
+the whole `configuration` attribute `Sensitive` (see Argument Reference above), so none of this
+appears in `terraform plan`/`apply` output.
 
-### Session/heartbeat
-- `session_timeout_ms` (int) — Consumer group session timeout.
-- `heartbeat_interval_ms` (int) — Heartbeat interval.
+```hcl
+custom_properties = join("\n", [
+  "security.protocol=SASL_SSL",
+  "ssl.truststore.location=/etc/graylog/server/certs/kafka.truststore.jks",
+  "ssl.truststore.password=${var.kafka_truststore_password}",
+  "ssl.keystore.location=/etc/graylog/server/certs/kafka.keystore.jks",
+  "ssl.keystore.password=${var.kafka_keystore_password}",
+  "ssl.key.password=${var.kafka_key_password}",
+  "sasl.mechanism=PLAIN",
+  "sasl.jaas.config=org.apache.kafka.common.security.plain.PlainLoginModule required username=\"${var.kafka_sasl_username}\" password=\"${var.kafka_sasl_password}\";",
+])
+```
 
-### Retries/backoff
-- `retries` (int) — Number of retries on transient errors.
-- `retry_backoff_ms` (int) — Backoff between retries.
-- `reconnect_backoff_ms` (int) — Backoff for reconnects.
-
-### Network/buffers/timeouts
-- `connections_max_idle_ms` (int) — Close idle connections after this time.
-- `receive_buffer_bytes` (int) — TCP receive buffer size.
-- `send_buffer_bytes` (int) — TCP send buffer size.
-- `request_timeout_ms` (int) — Request timeout for the client.
-
-### Processing / Graylog-specific
-- `threads` (int) — Worker threads to process messages.
-- `override_source` (string) — Override Graylog message `source` field value.
-- `assign_all_partitions` (bool) — Assign all partitions explicitly (if available in your version).
-
-### Security
-- `security_protocol` (string) — `PLAINTEXT` | `SSL` | `SASL_PLAINTEXT` | `SASL_SSL`.
-- `ssl_truststore_location` (string) — Path to truststore.
-- `ssl_truststore_password` (string) — Truststore password.
-- `ssl_keystore_location` (string) — Path to keystore.
-- `ssl_keystore_password` (string) — Keystore password.
-- `ssl_key_password` (string) — Private key password.
-- `sasl_mechanism` (string) — e.g., `PLAIN`, `SCRAM-SHA-256`, `SCRAM-SHA-512`, `GSSAPI`.
-- `sasl_username` (string) — SASL username (for PLAIN/SCRAM).
-- `sasl_password` (string) — SASL password (for PLAIN/SCRAM).
-- `sasl_jaas_config` (string) — Raw JAAS config string alternative to username/password.
-- `sasl_kerberos_service_name` (string) — Kerberos service name (for GSSAPI).
-
-### Minimal example (Kafka Raw)
+### Minimal example
 
 ```hcl
 resource "graylog_input" "kafka_raw" {
@@ -127,17 +136,22 @@ resource "graylog_input" "kafka_raw" {
   type   = "org.graylog2.inputs.raw.kafka.RawKafkaInput"
   global = true
 
-  configuration = {
-    bootstrap_servers  = ["kafka:9092"]
-    topics             = ["logs"]
-    fetch_min_bytes    = 1
-    group_id           = "graylog-kafka-raw"
-    auto_offset_reset  = "latest"
-  }
+  configuration = jsonencode({
+    legacy_mode      = false
+    bootstrap_server = "kafka:9092"
+    topic_filter     = "^logs-.*$"
+    fetch_min_bytes  = 1
+    fetch_wait_max   = 100
+    threads          = 2
+    group_id         = "graylog-kafka-raw"
+    offset_reset     = "largest"
+  })
 }
 ```
 
-### Advanced example (SSL/SASL and tuning)
+### Secure example (SASL_SSL with keystore/truststore certs)
+
+See `examples/inputs/kafka_raw.tf` for the full example with sensitive variables. In short:
 
 ```hcl
 resource "graylog_input" "kafka_raw_secure" {
@@ -145,35 +159,27 @@ resource "graylog_input" "kafka_raw_secure" {
   type   = "org.graylog2.inputs.raw.kafka.RawKafkaInput"
   global = true
 
-  configuration = {
-    bootstrap_servers       = ["kafka1:9093", "kafka2:9093"]
-    topic_pattern           = "logs-.*"
-    group_id                = "graylog-raw-secure"
-    auto_offset_reset       = "earliest"
-    max_poll_records        = 1000
-    request_timeout_ms      = 30000
-    fetch_min_bytes         = 1
-    fetch_max_wait_ms       = 500
-    max_partition_fetch_bytes = 1048576
+  configuration = jsonencode({
+    legacy_mode      = false
+    bootstrap_server = "kafka1:9093,kafka2:9093"
+    topic_filter     = "^logs-.*$"
+    fetch_min_bytes  = 1
+    fetch_wait_max   = 500
+    threads          = 2
+    group_id         = "graylog-raw-secure"
+    offset_reset     = "earliest"
 
-    security_protocol       = "SASL_SSL"
-    sasl_mechanism          = "SCRAM-SHA-512"
-    sasl_username           = "user"
-    sasl_password           = "pass"
-    # Alternatively:
-    # sasl_jaas_config      = "org.apache.kafka.common.security.scram.ScramLoginModule required username=\"user\" password=\"pass\";"
-
-    # SSL options if needed by the cluster
-    # ssl_truststore_location = "/etc/ssl/kafka/truststore.jks"
-    # ssl_truststore_password = "changeit"
-
-    threads                 = 2
-    allow_auto_create_topics = false
-  }
+    custom_properties = join("\n", [
+      "security.protocol=SASL_SSL",
+      "ssl.truststore.location=/etc/graylog/server/certs/kafka.truststore.jks",
+      "ssl.truststore.password=${var.kafka_truststore_password}",
+      "sasl.mechanism=PLAIN",
+      "sasl.jaas.config=org.apache.kafka.common.security.plain.PlainLoginModule required username=\"${var.kafka_sasl_username}\" password=\"${var.kafka_sasl_password}\";",
+    ])
+  })
 }
 ```
 
 Notes:
-- Not all keys are guaranteed to be available in every Graylog version; consult your Graylog/Kafka plugin documentation. Unknown keys will typically be ignored by the backend.
-- Prefer `topics` for explicit lists or `topic_pattern`/`topic_filter` for dynamic selection; do not set them simultaneously.
-- Values are passed as-is; ensure correct types (e.g., lists as Terraform lists, not comma-separated strings).
+- Field availability and behavior (create/update/read round-trip, including `custom_properties` and idempotency across `terraform plan`) were verified live against Graylog 5.0.13, 6.0.14, and 7.0.10. Only `legacy_mode`'s default differs between them (see above); double-check with `GET /api/system/inputs/types/<class>` against your own server if in doubt.
+- `topic_filter` is a regex, evaluated against topic names — it is required even in legacy mode.

@@ -34,6 +34,11 @@ resource "graylog_stream" "filtered" {
   description  = "Include WARN/ERROR but exclude healthchecks"
   index_set_id = graylog_index_set.main.id
 
+  # "OR": a message matches if it satisfies any rule (level == ERROR or level == WARN or
+  # message doesn't match the healthcheck regex). Use "AND" (the default) to require all
+  # rules to match instead.
+  matching_type = "OR"
+
   # type is an integer Graylog enum; values vary across versions
   rule {
     field = "level"
@@ -53,6 +58,4 @@ resource "graylog_stream" "filtered" {
     value    = ".*healthcheck.*"
     inverted = true     # exclude matches
   }
-
-  # Note: matching_type is not exposed by the resource; default Graylog behavior applies.
 }

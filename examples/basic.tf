@@ -34,29 +34,35 @@ resource "graylog_index_set" "main" {
   }
 }
 
-# Input example (Kafka JSON) — uses flexible configuration map
-resource "graylog_input" "kafka_json" {
-  title = "kafka-json"
-  type  = "org.graylog.plugins.kafka.input.KafkaJsonInput"
+# Input example (Raw/Plaintext Kafka) — uses flexible configuration map.
+# Field names verified against a live Graylog 6.0.14 instance via
+# GET /api/system/inputs/types/org.graylog2.inputs.raw.kafka.RawKafkaInput — see
+# examples/inputs/kafka_raw.tf for the full field reference and SSL/SASL setup.
+resource "graylog_input" "kafka_raw" {
+  title  = "kafka-raw"
+  type   = "org.graylog2.inputs.raw.kafka.RawKafkaInput"
   global = true
 
-  configuration = {
-    bootstrap_servers        = ["localhost:9092"]
-    topic_filter             = "logs-*"
-    fetch_min_bytes          = 1
-    allow_auto_create_topics = false
-  }
+  configuration = jsonencode({
+    legacy_mode      = false # required: false = modern KafkaConsumer client, true (default) = old ZooKeeper consumer
+    bootstrap_server = "localhost:9092"
+    topic_filter     = "^logs-.*$" # regex, not a literal topic name
+    fetch_min_bytes  = 1
+    fetch_wait_max   = 100
+    threads          = 2
+    group_id         = "graylog"
+  })
 
-  # Optional extractors (free-form maps passed as-is to the API)
-  extractors = [
-    {
-      type         = "regex"
-      title        = "extract user"
-      target_field = "user"
-      source_field = "message"
-      regex_value  = "user=(\\w+)"
-    }
-  ]
+  # Optional extractor (see docs/resources/graylog_input.md for all fields)
+  extractor {
+    title          = "extract user"
+    extractor_type = "regex"
+    source_field   = "message"
+    target_field   = "user"
+    extractor_config = jsonencode({
+      regex_value = "user=(\\w+)"
+    })
+  }
 }
 
 # Stream with rules (type is an integer enum in Graylog)
@@ -67,7 +73,7 @@ resource "graylog_stream" "s" {
 
   rule {
     field = "source"
-    type  = 1              # equals / exact match
+    type  = 1 # equals / exact match
     value = "terraform"
   }
 }
@@ -104,16 +110,17 @@ resource "graylog_alert" "a1" {
   priority    = 2
   alert       = true
 
-  # Free-form config passed as-is to Graylog
-  config = {
-    type   = "aggregation-v1"
-    query  = "level:ERROR"
-    series = [{ id = "count", function = "count()" }]
+  # Free-form config passed as-is to Graylog (JSON-encoded string, like graylog_input's
+  # configuration attribute)
+  config = jsonencode({
+    type     = "aggregation-v1"
+    query    = "level:ERROR"
+    series   = [{ id = "count", function = "count()" }]
     group_by = ["source"]
     execution = {
       interval = { type = "interval", value = 1, unit = "MINUTES" }
     }
-  }
+  })
 
   # Provide existing notification IDs if any
   notification_ids = []

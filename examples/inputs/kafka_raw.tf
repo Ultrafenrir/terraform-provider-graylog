@@ -1,15 +1,20 @@
 ###############################
 # Kafka Raw Input — full configuration example
 #
-# Пример показывает:
-# - минимальную конфигурацию (bootstrap_servers + topics)
-# - расширенную конфигурацию потребителя Kafka (см. раздел Advanced)
-# - SSL/SASL настройки (закомментированы; раскомментируйте при необходимости)
+# IMPORTANT: the field names below were verified against a live Graylog 6.0.14
+# instance via:
+#   GET /api/system/inputs/types/org.graylog2.inputs.raw.kafka.RawKafkaInput
+# Graylog's native Kafka input does NOT use "bootstrap_servers"/"topics"/"ssl_truststore_location"/
+# "sasl_mechanism"/etc. as individual top-level keys (an earlier version of this example did,
+# and none of those keys ever took effect — they were silently ignored by the backend). All
+# broker connection details use the field names below, and any Kafka client property beyond
+# them (SSL, SASL, custom timeouts, ...) goes into the single "custom_properties" field as
+# newline-separated "key=value" pairs using Kafka's own dotted property names.
 #
-# Примечания:
-# - Набор доступных ключей может отличаться между Graylog 5/6/7 и сборками плагина Kafka.
-# - Значения передаются «как есть» в Graylog API через map(dynamic), типы важны:
-#   строки (string), числа (int), булевы (bool), списки (list(string)).
+# The other three Kafka-backed inputs (CEF Kafka, Syslog Kafka, GELF Kafka — types
+# org.graylog.plugins.cef.input.CEFKafkaInput, org.graylog2.inputs.syslog.kafka.SyslogKafkaInput,
+# org.graylog2.inputs.gelf.kafka.GELFKafkaInput) share this exact same connection/custom_properties
+# shape; they just add codec-specific fields (e.g. GELF's decompress_size_limit).
 ###############################
 
 provider "graylog" {
@@ -17,90 +22,84 @@ provider "graylog" {
   token = "admin-token"
 }
 
-resource "graylog_input" "kafka_raw" {
-  title  = "kafka-raw"
+# --- Minimal configuration ---
+resource "graylog_input" "kafka_raw_minimal" {
+  title  = "kafka-raw-minimal"
   type   = "org.graylog2.inputs.raw.kafka.RawKafkaInput"
   global = true
 
-  # --- Minimal configuration ---
-  # Достаточно указать брокеры и список топиков (или topic_pattern/topic_filter).
-  configuration = {
-    # Брокеры Kafka
-    bootstrap_servers = ["localhost:9092"]
+  configuration = jsonencode({
+    # legacy_mode's default differs by Graylog version (true on 5.x/6.x, false on 7.x, verified
+    # live) — always set it explicitly to false to use the modern Kafka client and
+    # bootstrap_server/custom_properties below. Forgetting this is the single most common way
+    # for SSL/SASL settings to be silently ignored.
+    legacy_mode      = false
+    bootstrap_server = "localhost:9092" # single string: "host1:port1,host2:port2", not a list
+    topic_filter     = "^logs-.*$"      # regex the topic name must match, not a literal topic
+    fetch_min_bytes  = 1
+    fetch_wait_max   = 100
+    threads          = 2
+    group_id         = "graylog-kafka-raw"
+    offset_reset     = "largest" # "largest" (latest) or "smallest" (earliest)
+  })
+}
 
-    # Список топиков для подписки (взаимоисключимо с topic_pattern/topic_filter)
-    topics = ["logs"]
+# --- Secure configuration (SASL_SSL with keystore/truststore certs) ---
+resource "graylog_input" "kafka_raw_secure" {
+  title  = "kafka-raw-secure"
+  type   = "org.graylog2.inputs.raw.kafka.RawKafkaInput"
+  global = true
 
-    # Минимальный размер выборки сообщений (байты)
-    fetch_min_bytes = 1
+  configuration = jsonencode({
+    legacy_mode      = false
+    bootstrap_server = "kafka1.internal:9093,kafka2.internal:9093"
+    topic_filter     = "^logs-.*$"
+    fetch_min_bytes  = 1
+    fetch_wait_max   = 500
+    threads          = 2
+    group_id         = "graylog-raw-secure"
+    offset_reset     = "earliest"
 
-    # --- Recommended base consumer options ---
-    # Идентификатор группы потребителей
-    group_id = "graylog-kafka-raw"
+    # Any Kafka client property not covered by a dedicated field above (SSL, SASL, custom
+    # timeouts, etc.) goes here as newline-separated "key=value" pairs using Kafka's own
+    # dotted property names. Graylog itself flags this field as sensitive (it commonly holds
+    # keystore/truststore passwords and JAAS config with an embedded password) — this
+    # provider's `configuration` attribute is marked Sensitive for exactly that reason, so none
+    # of this shows up in `terraform plan`/`apply` output.
+    custom_properties = join("\n", [
+      "security.protocol=SASL_SSL",
+      "ssl.truststore.location=/etc/graylog/server/certs/kafka.truststore.jks",
+      "ssl.truststore.password=${var.kafka_truststore_password}",
+      "ssl.keystore.location=/etc/graylog/server/certs/kafka.keystore.jks",
+      "ssl.keystore.password=${var.kafka_keystore_password}",
+      "ssl.key.password=${var.kafka_key_password}",
+      "sasl.mechanism=PLAIN",
+      "sasl.jaas.config=org.apache.kafka.common.security.plain.PlainLoginModule required username=\"${var.kafka_sasl_username}\" password=\"${var.kafka_sasl_password}\";",
+    ])
+  })
+}
 
-    # Поведение при отсутствии оффсета в группе: earliest | latest | none
-    auto_offset_reset = "latest"
+variable "kafka_truststore_password" {
+  type      = string
+  sensitive = true
+}
 
-    # Максимум сообщений за один poll (оптимизация производительности)
-    max_poll_records = 500
+variable "kafka_keystore_password" {
+  type      = string
+  sensitive = true
+}
 
-    # Таймаут запроса (мс)
-    request_timeout_ms = 30000
+variable "kafka_key_password" {
+  type      = string
+  sensitive = true
+}
 
-    # Разрешать авто‑создание топиков брокером
-    allow_auto_create_topics = false
+variable "kafka_sasl_username" {
+  type      = string
+  sensitive = true
+}
 
-    # Количество потоков обработки (worker threads) — опционально
-    # threads = 1
-
-    # Переопределить source поля у сообщений — опционально
-    # override_source = "kafka"
-
-    # --- Fetch/receive tuning ---
-    # Максимальный размер данных, получаемый за один fetch с партиции
-    # max_partition_fetch_bytes = 1048576
-    # Максимальный размер данных за один fetch (совокупно)
-    # fetch_max_bytes = 52428800
-    # Максимальное ожидание данных в fetch (мс)
-    # fetch_max_wait_ms = 500
-
-    # --- Session/heartbeat/poll ---
-    # session_timeout_ms = 10000
-    # heartbeat_interval_ms = 3000
-    # max_poll_interval_ms = 300000
-
-    # --- Retry/backoff ---
-    # retries = 3
-    # retry_backoff_ms = 100
-    # reconnect_backoff_ms = 50
-
-    # --- Network/buffers ---
-    # connections_max_idle_ms = 540000
-    # receive_buffer_bytes   = 65536
-    # send_buffer_bytes      = 131072
-
-    # --- Topic pattern alternative ---
-    # topic_pattern = "logs-.*"     # альтернатива topics
-    # topic_filter  = "logs-*"      # поддерживается в некоторых версиях
-
-    # --- Security (uncomment to use) ---
-    # security_protocol = "SSL"      # PLAINTEXT | SSL | SASL_PLAINTEXT | SASL_SSL
-
-    # SSL options
-    # ssl_truststore_location = "/path/to/truststore.jks"
-    # ssl_truststore_password = "changeit"
-    # ssl_keystore_location   = "/path/to/keystore.jks"
-    # ssl_keystore_password   = "changeit"
-    # ssl_key_password        = "changeit"
-
-    # SASL options (пример SASL/PLAIN)
-    # sasl_mechanism = "PLAIN"
-    # sasl_username  = "user"
-    # sasl_password  = "pass"
-    # Пример SASL JAAS (альтернативно username/password):
-    # sasl_jaas_config = "org.apache.kafka.common.security.plain.PlainLoginModule required username=\"user\" password=\"pass\";"
-
-    # Kerberos (если используется)
-    # sasl_kerberos_service_name = "kafka"
-  }
+variable "kafka_sasl_password" {
+  type      = string
+  sensitive = true
 }

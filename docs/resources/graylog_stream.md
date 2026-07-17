@@ -18,6 +18,8 @@ resource "graylog_stream" "errors" {
   index_set_id = graylog_index_set.main.id
   # Remove matching messages from the default stream
   remove_matches_from_default_stream = true
+  # Combine rules with OR instead of the default AND
+  matching_type = "OR"
 
   rule {
     field       = "level"
@@ -42,6 +44,7 @@ resource "graylog_stream" "errors" {
 - `description` (String, Optional) — Stream description.
 - `disabled` (Boolean, Optional) — Whether the stream is disabled.
 - `index_set_id` (String, Optional) — Index set ID to use for the stream.
+- `matching_type` (String, Optional, Computed) — How stream rules are combined to match a message: `AND` (all rules must match) or `OR` (any rule matches). Defaults to `AND`.
 - `remove_matches_from_default_stream` (Boolean, Optional, Computed) — When true, messages matching this stream are removed from the default stream. If not set in configuration, the provider reads the current server value (defaults to `false`) and keeps it in state without causing diffs (including after import).
 - `timeouts` (Block, Optional) — Customize create/update/delete timeouts.
 

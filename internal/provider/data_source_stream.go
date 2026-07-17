@@ -13,11 +13,12 @@ import (
 type streamDataSource struct{ client *client.Client }
 
 type streamDataSourceModel struct {
-	ID          types.String `tfsdk:"id"`
-	Title       types.String `tfsdk:"title"`
-	Description types.String `tfsdk:"description"`
-	Disabled    types.Bool   `tfsdk:"disabled"`
-	IndexSetID  types.String `tfsdk:"index_set_id"`
+	ID           types.String `tfsdk:"id"`
+	Title        types.String `tfsdk:"title"`
+	Description  types.String `tfsdk:"description"`
+	Disabled     types.Bool   `tfsdk:"disabled"`
+	IndexSetID   types.String `tfsdk:"index_set_id"`
+	MatchingType types.String `tfsdk:"matching_type"`
 }
 
 func NewStreamDataSource() datasource.DataSource { return &streamDataSource{} }
@@ -30,11 +31,12 @@ func (d *streamDataSource) Schema(_ context.Context, _ datasource.SchemaRequest,
 	resp.Schema = schema.Schema{
 		Description: "Fetches a Graylog stream by ID. Compatible with Graylog v5, v6, and v7.",
 		Attributes: map[string]schema.Attribute{
-			"id":           schema.StringAttribute{Required: true, Description: "The unique identifier of the stream"},
-			"title":        schema.StringAttribute{Computed: true, Description: "The title of the stream"},
-			"description":  schema.StringAttribute{Computed: true, Description: "Description of the stream"},
-			"disabled":     schema.BoolAttribute{Computed: true, Description: "Whether the stream is disabled"},
-			"index_set_id": schema.StringAttribute{Computed: true, Description: "The index set ID associated with this stream"},
+			"id":            schema.StringAttribute{Required: true, Description: "The unique identifier of the stream"},
+			"title":         schema.StringAttribute{Computed: true, Description: "The title of the stream"},
+			"description":   schema.StringAttribute{Computed: true, Description: "Description of the stream"},
+			"disabled":      schema.BoolAttribute{Computed: true, Description: "Whether the stream is disabled"},
+			"index_set_id":  schema.StringAttribute{Computed: true, Description: "The index set ID associated with this stream"},
+			"matching_type": schema.StringAttribute{Computed: true, Description: "How stream rules are combined to match a message (\"AND\" or \"OR\")"},
 		},
 	}
 }
@@ -67,6 +69,11 @@ func (d *streamDataSource) Read(ctx context.Context, req datasource.ReadRequest,
 	data.Description = types.StringValue(s.Description)
 	data.Disabled = types.BoolValue(s.Disabled)
 	data.IndexSetID = types.StringValue(s.IndexSetID)
+	if s.MatchingType != "" {
+		data.MatchingType = types.StringValue(s.MatchingType)
+	} else {
+		data.MatchingType = types.StringValue("AND")
+	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }

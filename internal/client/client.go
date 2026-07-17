@@ -1014,6 +1014,23 @@ type Input struct {
 	Configuration map[string]interface{} `json:"configuration,omitempty"`
 }
 
+// fillInputConfigurationFromRaw handles a real Graylog API inconsistency, confirmed against a
+// live Graylog 6.0.14 server: create/update request bodies use a top-level "configuration" key,
+// but GET (single input) and LIST (/system/inputs) responses nest the exact same data under
+// "attributes" instead. Without this, out.Configuration silently ends up nil after every
+// GetInput/ListInputs call, since json.Unmarshal into Input only looks for "configuration".
+func fillInputConfigurationFromRaw(out *Input, raw []byte) {
+	if len(out.Configuration) > 0 {
+		return
+	}
+	var wrapper struct {
+		Attributes map[string]interface{} `json:"attributes"`
+	}
+	if err := json.Unmarshal(raw, &wrapper); err == nil && len(wrapper.Attributes) > 0 {
+		out.Configuration = wrapper.Attributes
+	}
+}
+
 func (c *Client) CreateInput(in *Input) (*Input, error) {
 	// Унифицированный путь для всех версий
 	path := "/api/system/inputs"
@@ -1023,6 +1040,7 @@ func (c *Client) CreateInput(in *Input) (*Input, error) {
 	}
 	var out Input
 	_ = json.Unmarshal(resp, &out)
+	fillInputConfigurationFromRaw(&out, resp)
 	return &out, nil
 }
 
@@ -1035,6 +1053,7 @@ func (c *Client) GetInput(id string) (*Input, error) {
 	}
 	var out Input
 	_ = json.Unmarshal(resp, &out)
+	fillInputConfigurationFromRaw(&out, resp)
 	return &out, nil
 }
 
@@ -1047,6 +1066,7 @@ func (c *Client) UpdateInput(id string, in *Input) (*Input, error) {
 	}
 	var out Input
 	_ = json.Unmarshal(resp, &out)
+	fillInputConfigurationFromRaw(&out, resp)
 	return &out, nil
 }
 
@@ -1059,6 +1079,21 @@ func (c *Client) DeleteInput(id string) error {
 
 // ListInputs returns all inputs. Graylog may return either a wrapped object
 // like {"inputs": [...]} or a raw array; support both.
+// parseInputItems unmarshals each raw input object into an Input, applying the same
+// "attributes" fallback used by Get/Create/UpdateInput (see fillInputConfigurationFromRaw).
+func parseInputItems(items []json.RawMessage) []Input {
+	out := make([]Input, 0, len(items))
+	for _, raw := range items {
+		var in Input
+		if err := json.Unmarshal(raw, &in); err != nil {
+			continue
+		}
+		fillInputConfigurationFromRaw(&in, raw)
+		out = append(out, in)
+	}
+	return out
+}
+
 func (c *Client) ListInputs() ([]Input, error) {
 	path := "/api/system/inputs"
 	resp, err := c.doRequest("GET", path, nil)
@@ -1067,15 +1102,15 @@ func (c *Client) ListInputs() ([]Input, error) {
 	}
 	// Try wrapped form first
 	var wrap struct {
-		Inputs []Input `json:"inputs"`
+		Inputs []json.RawMessage `json:"inputs"`
 	}
 	if err := json.Unmarshal(resp, &wrap); err == nil && wrap.Inputs != nil {
-		return wrap.Inputs, nil
+		return parseInputItems(wrap.Inputs), nil
 	}
 	// Fallback to array
-	var arr []Input
+	var arr []json.RawMessage
 	if err := json.Unmarshal(resp, &arr); err == nil && arr != nil {
-		return arr, nil
+		return parseInputItems(arr), nil
 	}
 	// Be lenient with map[string]any of inputs keyed by id
 	var anyMap map[string]any
@@ -1083,25 +1118,19 @@ func (c *Client) ListInputs() ([]Input, error) {
 		if v, ok := anyMap["inputs"]; ok {
 			switch t := v.(type) {
 			case []any:
-				out := make([]Input, 0, len(t))
+				items := make([]json.RawMessage, 0, len(t))
 				for _, it := range t {
 					b, _ := json.Marshal(it)
-					var s Input
-					if err := json.Unmarshal(b, &s); err == nil {
-						out = append(out, s)
-					}
+					items = append(items, b)
 				}
-				return out, nil
+				return parseInputItems(items), nil
 			case map[string]any:
-				out := make([]Input, 0, len(t))
+				items := make([]json.RawMessage, 0, len(t))
 				for _, it := range t {
 					b, _ := json.Marshal(it)
-					var s Input
-					if err := json.Unmarshal(b, &s); err == nil {
-						out = append(out, s)
-					}
+					items = append(items, b)
 				}
-				return out, nil
+				return parseInputItems(items), nil
 			}
 		}
 	}
@@ -1167,10 +1196,8 @@ type LDAPSettings struct {
 
 // GetLDAPSettings fetches current LDAP settings.
 func (c *Client) GetLDAPSettings() (*LDAPSettings, error) {
-	path := "/system/ldap/settings"
-	if c.APIVersion == APIV6 || c.APIVersion == APIV7 {
-		path = "/api/system/ldap/settings"
-	}
+	// Унифицированный путь для всех версий
+	path := "/api/system/ldap/settings"
 	resp, err := c.doRequest("GET", path, nil)
 	if err != nil {
 		return nil, err
@@ -1184,10 +1211,8 @@ func (c *Client) GetLDAPSettings() (*LDAPSettings, error) {
 
 // UpdateLDAPSettings updates LDAP settings (singleton upsert).
 func (c *Client) UpdateLDAPSettings(s *LDAPSettings) (*LDAPSettings, error) {
-	path := "/system/ldap/settings"
-	if c.APIVersion == APIV6 || c.APIVersion == APIV7 {
-		path = "/api/system/ldap/settings"
-	}
+	// Унифицированный путь для всех версий
+	path := "/api/system/ldap/settings"
 	// Marshal as-is, Graylog ignores unknown fields.
 	resp, err := c.doRequest("PUT", path, s)
 	if err != nil {
@@ -1522,10 +1547,31 @@ func (c *Client) DeleteStreamRule(streamID, ruleID string) error {
 }
 
 // ===== Extractors (Inputs) =====
-// We keep extractor payloads as free-form maps to allow full flexibility across Graylog versions.
 
-// ListInputExtractors returns a flat list of extractor objects for the specified input.
-func (c *Client) ListInputExtractors(inputID string) ([]map[string]interface{}, error) {
+// Extractor represents a Graylog input extractor. Fields and JSON tags match
+// Graylog's REST API (POST/PUT /system/inputs/{inputId}/extractors).
+type Extractor struct {
+	ID              string                 `json:"id,omitempty"`
+	Title           string                 `json:"title"`
+	ExtractorType   string                 `json:"extractor_type"`
+	SourceField     string                 `json:"source_field"`
+	TargetField     string                 `json:"target_field,omitempty"`
+	CursorStrategy  string                 `json:"cursor_strategy,omitempty"`
+	ExtractorConfig map[string]interface{} `json:"extractor_config,omitempty"`
+	Converters      []ExtractorConverter   `json:"converters,omitempty"`
+	ConditionType   string                 `json:"condition_type,omitempty"`
+	ConditionValue  string                 `json:"condition_value,omitempty"`
+	Order           int                    `json:"order,omitempty"`
+}
+
+// ExtractorConverter represents a single converter attached to an extractor.
+type ExtractorConverter struct {
+	Type   string                 `json:"type"`
+	Config map[string]interface{} `json:"config,omitempty"`
+}
+
+// ListInputExtractors returns a flat list of extractors configured for the specified input.
+func (c *Client) ListInputExtractors(inputID string) ([]Extractor, error) {
 	// Унифицированный путь для всех версий
 	base := fmt.Sprintf("/api/system/inputs/%s/extractors", inputID)
 	resp, err := c.doRequest("GET", base, nil)
@@ -1534,13 +1580,13 @@ func (c *Client) ListInputExtractors(inputID string) ([]map[string]interface{}, 
 	}
 	// Graylog wraps response like {"extractors": [ ... ]}
 	var wrapper struct {
-		Extractors []map[string]interface{} `json:"extractors"`
+		Extractors []Extractor `json:"extractors"`
 	}
 	if err := json.Unmarshal(resp, &wrapper); err == nil && wrapper.Extractors != nil {
 		return wrapper.Extractors, nil
 	}
 	// Some versions may return an array directly (be lenient)
-	var direct []map[string]interface{}
+	var direct []Extractor
 	if err := json.Unmarshal(resp, &direct); err == nil && direct != nil {
 		return direct, nil
 	}
@@ -1548,37 +1594,32 @@ func (c *Client) ListInputExtractors(inputID string) ([]map[string]interface{}, 
 }
 
 // CreateInputExtractor creates an extractor for the specified input and returns the created object.
-func (c *Client) CreateInputExtractor(inputID string, extractor map[string]interface{}) (map[string]interface{}, error) {
-	base := fmt.Sprintf("/system/inputs/%s/extractors", inputID)
-	if c.APIVersion == APIV6 || c.APIVersion == APIV7 {
-		base = fmt.Sprintf("/api/system/inputs/%s/extractors", inputID)
-	}
+func (c *Client) CreateInputExtractor(inputID string, extractor *Extractor) (*Extractor, error) {
+	// Унифицированный путь для всех версий
+	base := fmt.Sprintf("/api/system/inputs/%s/extractors", inputID)
 	resp, err := c.doRequest("POST", base, extractor)
 	if err != nil {
 		return nil, err
 	}
-	var out map[string]interface{}
+	var out Extractor
 	_ = json.Unmarshal(resp, &out)
-	if out == nil {
-		out = map[string]interface{}{}
-	}
-	return out, nil
+	return &out, nil
 }
 
 // DeleteInputExtractor deletes a specific extractor by id for the given input.
 func (c *Client) DeleteInputExtractor(inputID, extractorID string) error {
-	path := fmt.Sprintf("/system/inputs/%s/extractors/%s", inputID, extractorID)
-	if c.APIVersion == APIV6 || c.APIVersion == APIV7 {
-		path = fmt.Sprintf("/api/system/inputs/%s/extractors/%s", inputID, extractorID)
-	}
+	// Унифицированный путь для всех версий
+	path := fmt.Sprintf("/api/system/inputs/%s/extractors/%s", inputID, extractorID)
 	_, err := c.doRequest("DELETE", path, nil)
 	return err
 }
 
 type IndexSet struct {
-	ID          string `json:"id,omitempty"`
-	Title       string `json:"title"`
-	Description string `json:"description,omitempty"`
+	ID    string `json:"id,omitempty"`
+	Title string `json:"title"`
+	// No omitempty: UpdateIndexSet PUTs this struct directly as a full-object replace, and an
+	// empty Description is a legitimate "clear the description" request, not "field absent".
+	Description string `json:"description"`
 	IndexPrefix string `json:"index_prefix"`
 	Shards      int    `json:"shards"`
 	Replicas    int    `json:"replicas"`
@@ -1844,10 +1885,13 @@ func (c *Client) UpdateIndexSet(id string, is *IndexSet) (*IndexSet, error) {
 	if is.Title != "" {
 		current.Title = is.Title
 	}
-	if is.Description != "" {
-		current.Description = is.Description
-	}
-	// Shards and Replicas - always update
+	// Description is Optional (not required non-empty like Title), so an empty value is a
+	// legitimate "clear the description" request, not "leave it unset" — don't guard on it.
+	current.Description = is.Description
+	// index_prefix and shards are immutable in Graylog after creation (the resource schema
+	// enforces this via RequiresReplace), but keep this in sync defensively rather than
+	// silently dropping whatever the caller asked for.
+	current.IndexPrefix = is.IndexPrefix
 	current.Shards = is.Shards
 	current.Replicas = is.Replicas
 

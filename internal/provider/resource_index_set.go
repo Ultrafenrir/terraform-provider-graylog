@@ -16,6 +16,9 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
@@ -60,20 +63,26 @@ func (r *indexSetResource) Schema(ctx context.Context, _ resource.SchemaRequest,
 			"description": schema.StringAttribute{Optional: true, Description: "Description of the index set"},
 			"index_prefix": schema.StringAttribute{
 				Required:    true,
-				Description: "Index name prefix (lowercase letters, numbers, dash, underscore)",
+				Description: "Index name prefix (lowercase letters, numbers, dash, underscore). Immutable after creation (changing it forces recreation of the index set) since Graylog/Elasticsearch derive physical index names from it.",
 				Validators: []validator.String{
 					stringvalidator.RegexMatches(
 						regexp.MustCompile(`^[a-z0-9_-]+$`),
 						"must contain only lowercase letters, numbers, dashes, and underscores",
 					),
 				},
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
 			},
 			"shards": schema.Int64Attribute{
 				Optional:    true,
 				Computed:    true,
-				Description: "Number of Elasticsearch shards (must be >= 0). Note: this field is immutable after creation and cannot be changed without recreating the index set.",
+				Description: "Number of Elasticsearch shards (must be >= 0). Immutable after creation (changing it forces recreation of the index set).",
 				Validators: []validator.Int64{
 					int64validator.AtLeast(0),
+				},
+				PlanModifiers: []planmodifier.Int64{
+					int64planmodifier.RequiresReplace(),
 				},
 			},
 			"replicas": schema.Int64Attribute{
@@ -84,7 +93,14 @@ func (r *indexSetResource) Schema(ctx context.Context, _ resource.SchemaRequest,
 					int64validator.AtLeast(0),
 				},
 			},
-			"index_analyzer":                      schema.StringAttribute{Optional: true, Computed: true, Description: "Elasticsearch analyzer to use (defaults to 'standard'). Note: this field is immutable after creation and cannot be changed without recreating the index set."},
+			"index_analyzer": schema.StringAttribute{
+				Optional:    true,
+				Computed:    true,
+				Description: "Elasticsearch analyzer to use (defaults to 'standard'). Immutable after creation (changing it forces recreation of the index set).",
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
+			},
 			"field_type_refresh_interval":         schema.Int64Attribute{Optional: true, Computed: true, Description: "Field type refresh interval in milliseconds (defaults to 5000)"},
 			"index_optimization_max_num_segments": schema.Int64Attribute{Optional: true, Computed: true, Description: "Max number of segments for index optimization (>=1, defaults to 1)"},
 			"index_optimization_disabled":         schema.BoolAttribute{Optional: true, Computed: true, Description: "Disable index optimization (defaults to false)"},
@@ -242,16 +258,18 @@ func (r *indexSetResource) Create(ctx context.Context, req resource.CreateReques
 		resp.Diagnostics.AddError("Error creating index set", err.Error())
 		return
 	}
+	// The index set now exists in Graylog — persist its ID before anything else so a later
+	// failure here can't orphan it (untracked in Terraform state) or cause a duplicate create
+	// on the next apply.
+	data.ID = types.StringValue(created.ID)
 
 	// Read back from API to get the complete state with all server-populated fields
 	is, err := r.client.WithContext(ctx).GetIndexSet(created.ID)
 	if err != nil {
 		resp.Diagnostics.AddError("Error reading index set after create", err.Error())
+		resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 		return
 	}
-
-	// Set ID
-	data.ID = types.StringValue(is.ID)
 
 	// Remember if user specified rotation/retention blocks in plan
 	// Check both nil and non-null class to handle framework quirks
@@ -371,16 +389,18 @@ func (r *indexSetResource) Update(ctx context.Context, req resource.UpdateReques
 		resp.Diagnostics.AddError("Error updating index set", err.Error())
 		return
 	}
+	// Set ID from state, and persist it up front: the update already succeeded server-side, so a
+	// later failure reading it back shouldn't lose track of the resource or mask that the
+	// change was actually applied.
+	plan.ID = state.ID
 
 	// Read back from API to get the complete updated state
 	is, err := r.client.WithContext(ctx).GetIndexSet(state.ID.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError("Error reading index set after update", err.Error())
+		resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 		return
 	}
-
-	// Set ID from state
-	plan.ID = state.ID
 
 	// Remember if user specified rotation/retention blocks in plan
 	// Check both nil and non-null class to handle framework quirks
@@ -511,7 +531,20 @@ func mapToStringMap(ctx context.Context, in map[string]any) types.Map {
 // with stable defaults to avoid plan drift.
 func applyIndexSetReadState(ctx context.Context, data *indexSetModel, is *client.IndexSet) {
 	data.Title = types.StringValue(is.Title)
-	data.Description = types.StringValue(is.Description)
+	// description is Optional (not Computed), so Terraform requires the "no description" case
+	// to come back exactly as it was planned/configured: null if the attribute was never set,
+	// or "" if it was explicitly cleared — a single unconditional choice here would either force
+	// a permanent diff (always null) or an "inconsistent result after apply" error (always "",
+	// when the user genuinely left it unset). `data.Description` at this point still holds the
+	// pre-overwrite plan/state value, so it tells us which case we're in.
+	switch {
+	case is.Description != "":
+		data.Description = types.StringValue(is.Description)
+	case data.Description.IsNull() || data.Description.IsUnknown():
+		data.Description = types.StringNull()
+	default:
+		data.Description = types.StringValue("")
+	}
 	data.IndexPrefix = types.StringValue(is.IndexPrefix)
 	data.Shards = types.Int64Value(int64(is.Shards))
 	data.Replicas = types.Int64Value(int64(is.Replicas))
