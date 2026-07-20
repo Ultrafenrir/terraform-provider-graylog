@@ -24,7 +24,6 @@ resource "graylog_index_set" "test" {
   description        = "Managed by acceptance"
   shards             = 1
   replicas           = 0
-  index_analyzer     = "standard"
   field_type_refresh_interval         = 5000
   index_optimization_disabled         = false
   index_optimization_max_num_segments = 1
@@ -48,6 +47,9 @@ resource "graylog_index_set" "test" {
 				Check: resource.ComposeTestCheckFunc(
 					resource.TestCheckResourceAttrSet("graylog_index_set.test", "id"),
 					resource.TestCheckResourceAttr("graylog_index_set.test", "title", "acc-main-index"),
+					// index_analyzer is Computed-only (not user-configurable); just confirm
+					// Graylog's own value gets populated into state.
+					resource.TestCheckResourceAttrSet("graylog_index_set.test", "index_analyzer"),
 					resource.TestCheckResourceAttr("graylog_index_set.test", "rotation.class", "org.graylog2.indexer.rotation.strategies.MessageCountRotationStrategy"),
 					resource.TestCheckResourceAttr("graylog_index_set.test", "retention.class", "org.graylog2.indexer.retention.strategies.DeletionRetentionStrategy"),
 				),
@@ -74,7 +76,6 @@ resource "graylog_index_set" "test" {
   description        = "Initial description"
   shards             = 1
   replicas           = 0
-  index_analyzer     = "standard"
   field_type_refresh_interval         = 5000
   index_optimization_disabled         = false
   index_optimization_max_num_segments = 1
@@ -87,23 +88,23 @@ resource "graylog_index_set" "test" {
 					resource.TestCheckResourceAttr("graylog_index_set.test", "description", "Initial description"),
 					resource.TestCheckResourceAttr("graylog_index_set.test", "shards", "1"),
 					resource.TestCheckResourceAttr("graylog_index_set.test", "replicas", "0"),
-					resource.TestCheckResourceAttr("graylog_index_set.test", "index_analyzer", "standard"),
 					resource.TestCheckResourceAttr("graylog_index_set.test", "field_type_refresh_interval", "5000"),
 					resource.TestCheckResourceAttr("graylog_index_set.test", "index_optimization_disabled", "false"),
 					resource.TestCheckResourceAttr("graylog_index_set.test", "index_optimization_max_num_segments", "1"),
 				),
 			},
 			{
-				// shards/index_prefix/index_analyzer are immutable (RequiresReplace) and left
-				// unchanged here — this step exercises a genuine in-place update.
+				// index_prefix is left unchanged here (immutable, forces replace — see
+				// TestAccIndexSet_immutableFieldsForceReplacement). Every other field, including
+				// shards, is safe to change in place — the index set stores data and must never
+				// be recreated just because shards/replicas/etc. changed.
 				Config: testAccProviderConfig() + `
 resource "graylog_index_set" "test" {
   title              = "acc-update-index-modified"
   index_prefix       = "acc-update"
   description        = "Updated description"
-  shards             = 1
+  shards             = 2
   replicas           = 1
-  index_analyzer     = "standard"
   field_type_refresh_interval         = 6000
   index_optimization_disabled         = true
   index_optimization_max_num_segments = 2
@@ -119,9 +120,8 @@ resource "graylog_index_set" "test" {
 					resource.TestCheckResourceAttrSet("graylog_index_set.test", "id"),
 					resource.TestCheckResourceAttr("graylog_index_set.test", "title", "acc-update-index-modified"),
 					resource.TestCheckResourceAttr("graylog_index_set.test", "description", "Updated description"),
-					resource.TestCheckResourceAttr("graylog_index_set.test", "shards", "1"),
+					resource.TestCheckResourceAttr("graylog_index_set.test", "shards", "2"),
 					resource.TestCheckResourceAttr("graylog_index_set.test", "replicas", "1"),
-					resource.TestCheckResourceAttr("graylog_index_set.test", "index_analyzer", "standard"),
 					resource.TestCheckResourceAttr("graylog_index_set.test", "field_type_refresh_interval", "6000"),
 					resource.TestCheckResourceAttr("graylog_index_set.test", "index_optimization_disabled", "true"),
 					resource.TestCheckResourceAttr("graylog_index_set.test", "index_optimization_max_num_segments", "2"),
@@ -133,9 +133,8 @@ resource "graylog_index_set" "test" {
   title              = "acc-update-index-modified"
   index_prefix       = "acc-update"
   description        = ""
-  shards             = 1
+  shards             = 3
   replicas           = 2
-  index_analyzer     = "standard"
   field_type_refresh_interval         = 7000
   index_optimization_disabled         = false
   index_optimization_max_num_segments = 3
@@ -150,29 +149,52 @@ resource "graylog_index_set" "test" {
 				Check: resource.ComposeTestCheckFunc(
 					resource.TestCheckResourceAttrSet("graylog_index_set.test", "id"),
 					resource.TestCheckResourceAttr("graylog_index_set.test", "description", ""),
+					resource.TestCheckResourceAttr("graylog_index_set.test", "shards", "3"),
 					resource.TestCheckResourceAttr("graylog_index_set.test", "replicas", "2"),
 					resource.TestCheckResourceAttr("graylog_index_set.test", "field_type_refresh_interval", "7000"),
 					resource.TestCheckResourceAttr("graylog_index_set.test", "index_optimization_disabled", "false"),
 					resource.TestCheckResourceAttr("graylog_index_set.test", "index_optimization_max_num_segments", "3"),
 				),
 			},
+			{
+				// A no-op plan after several updates must show zero changes — guards against the
+				// Optional+Computed-without-UseStateForUnknown bug where any unrelated change
+				// (or even just a refresh) could make untouched fields look like they need
+				// recomputing.
+				Config: testAccProviderConfig() + `
+resource "graylog_index_set" "test" {
+  title              = "acc-update-index-modified"
+  index_prefix       = "acc-update"
+  description        = ""
+  shards             = 3
+  replicas           = 2
+  field_type_refresh_interval         = 7000
+  index_optimization_disabled         = false
+  index_optimization_max_num_segments = 3
+  default            = false
+}
+`,
+				PlanOnly: true,
+			},
 		},
 	})
 }
 
-// TestAccIndexSet_immutableFieldsForceReplacement verifies that index_prefix, shards, and
-// index_analyzer are truly immutable: changing any of them must plan a replace, not a silent
-// no-op update (the underlying bug this guards against: index_prefix changes used to be dropped
-// entirely by UpdateIndexSet, producing a permanent diff that never converged).
+// TestAccIndexSet_immutableFieldsForceReplacement verifies that ONLY index_prefix is immutable
+// (forces replacement) — the underlying bug this guards against: index_prefix changes used to be
+// silently dropped by UpdateIndexSet (permanent diff that never converged), and separately,
+// shards/index_analyzer were incorrectly marked RequiresReplace even though Graylog only applies
+// them to indices rotated in the future, never to already-written (data-bearing) ones. An index
+// set holds real data — recreating it destroys that data, so nothing except renaming
+// (index_prefix) may ever force a replace.
 func TestAccIndexSet_immutableFieldsForceReplacement(t *testing.T) {
-	baseConfig := func(prefix, analyzer string, shards int) string {
+	baseConfig := func(prefix string, shards int) string {
 		return testAccProviderConfig() + `
 resource "graylog_index_set" "immutable" {
-  title          = "acc-immutable-index"
-  index_prefix   = "` + prefix + `"
-  shards         = ` + strconv.Itoa(shards) + `
-  replicas       = 0
-  index_analyzer = "` + analyzer + `"
+  title        = "acc-immutable-index"
+  index_prefix = "` + prefix + `"
+  shards       = ` + strconv.Itoa(shards) + `
+  replicas     = 0
 }
 `
 	}
@@ -182,30 +204,21 @@ resource "graylog_index_set" "immutable" {
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				Config: baseConfig("acc-immutable", "standard", 1),
+				Config: baseConfig("acc-immutable", 1),
 				Check:  resource.TestCheckResourceAttrSet("graylog_index_set.immutable", "id"),
 			},
 			{
+				// Changing shards must NOT force replacement — it's a safe in-place update.
+				Config: baseConfig("acc-immutable", 2),
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{
+						plancheck.ExpectResourceAction("graylog_index_set.immutable", plancheck.ResourceActionUpdate),
+					},
+				},
+			},
+			{
 				// Changing index_prefix must force replacement.
-				Config: baseConfig("acc-immutable-renamed", "standard", 1),
-				ConfigPlanChecks: resource.ConfigPlanChecks{
-					PreApply: []plancheck.PlanCheck{
-						plancheck.ExpectResourceAction("graylog_index_set.immutable", plancheck.ResourceActionReplace),
-					},
-				},
-			},
-			{
-				// Changing shards must force replacement.
-				Config: baseConfig("acc-immutable-renamed", "standard", 2),
-				ConfigPlanChecks: resource.ConfigPlanChecks{
-					PreApply: []plancheck.PlanCheck{
-						plancheck.ExpectResourceAction("graylog_index_set.immutable", plancheck.ResourceActionReplace),
-					},
-				},
-			},
-			{
-				// Changing index_analyzer must force replacement.
-				Config: baseConfig("acc-immutable-renamed", "whitespace", 2),
+				Config: baseConfig("acc-immutable-renamed", 2),
 				ConfigPlanChecks: resource.ConfigPlanChecks{
 					PreApply: []plancheck.PlanCheck{
 						plancheck.ExpectResourceAction("graylog_index_set.immutable", plancheck.ResourceActionReplace),

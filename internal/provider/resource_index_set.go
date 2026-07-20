@@ -16,6 +16,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
@@ -58,7 +59,13 @@ func (r *indexSetResource) Schema(ctx context.Context, _ resource.SchemaRequest,
 		Version:     4,
 		Description: "Manages a Graylog index set resource. Compatible with Graylog v5, v6, and v7.",
 		Attributes: map[string]schema.Attribute{
-			"id":          schema.StringAttribute{Computed: true, Description: "The unique identifier of the index set"},
+			"id": schema.StringAttribute{
+				Computed:    true,
+				Description: "The unique identifier of the index set",
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
+			},
 			"title":       schema.StringAttribute{Required: true, Description: "The title of the index set"},
 			"description": schema.StringAttribute{Optional: true, Description: "Description of the index set"},
 			"index_prefix": schema.StringAttribute{
@@ -74,15 +81,19 @@ func (r *indexSetResource) Schema(ctx context.Context, _ resource.SchemaRequest,
 					stringplanmodifier.RequiresReplace(),
 				},
 			},
+			// shards/replicas only affect indices Graylog rotates to in the future — they are
+			// NOT a property of an already-written, immutable physical index, unlike
+			// index_prefix. Changing them is a safe, in-place update; it must never force
+			// replacement of an index set that already holds data.
 			"shards": schema.Int64Attribute{
 				Optional:    true,
 				Computed:    true,
-				Description: "Number of Elasticsearch shards (must be >= 0). Immutable after creation (changing it forces recreation of the index set).",
+				Description: "Number of Elasticsearch shards for future indices in this index set (must be >= 0). Safe to change in place; does not affect already-written indices or force recreation.",
 				Validators: []validator.Int64{
 					int64validator.AtLeast(0),
 				},
 				PlanModifiers: []planmodifier.Int64{
-					int64planmodifier.RequiresReplace(),
+					int64planmodifier.UseStateForUnknown(),
 				},
 			},
 			"replicas": schema.Int64Attribute{
@@ -92,20 +103,55 @@ func (r *indexSetResource) Schema(ctx context.Context, _ resource.SchemaRequest,
 				Validators: []validator.Int64{
 					int64validator.AtLeast(0),
 				},
-			},
-			"index_analyzer": schema.StringAttribute{
-				Optional:    true,
-				Computed:    true,
-				Description: "Elasticsearch analyzer to use (defaults to 'standard'). Immutable after creation (changing it forces recreation of the index set).",
-				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.RequiresReplace(),
+				PlanModifiers: []planmodifier.Int64{
+					int64planmodifier.UseStateForUnknown(),
 				},
 			},
-			"field_type_refresh_interval":         schema.Int64Attribute{Optional: true, Computed: true, Description: "Field type refresh interval in milliseconds (defaults to 5000)"},
-			"index_optimization_max_num_segments": schema.Int64Attribute{Optional: true, Computed: true, Description: "Max number of segments for index optimization (>=1, defaults to 1)"},
-			"index_optimization_disabled":         schema.BoolAttribute{Optional: true, Computed: true, Description: "Disable index optimization (defaults to false)"},
-			"default":                             schema.BoolAttribute{Optional: true, Computed: true, Description: "Whether this is the default index set"},
-			"timeouts":                            timeouts.Attributes(ctx, timeouts.Opts{Create: true, Update: true, Delete: true}),
+			// index_analyzer is intentionally Computed-only (no Optional): this provider does
+			// not allow setting or changing it via Terraform at all. Graylog picks/keeps its own
+			// default; exposing it as a user-configurable field previously forced destructive
+			// index set recreation (deleting real data) whenever it looked like it needed to
+			// change, which is never an acceptable tradeoff for a setting this minor.
+			"index_analyzer": schema.StringAttribute{
+				Computed:    true,
+				Description: "Elasticsearch analyzer in use, as reported by Graylog. Not user-configurable through this provider.",
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
+			},
+			"field_type_refresh_interval": schema.Int64Attribute{
+				Optional:    true,
+				Computed:    true,
+				Description: "Field type refresh interval in milliseconds (defaults to 5000)",
+				PlanModifiers: []planmodifier.Int64{
+					int64planmodifier.UseStateForUnknown(),
+				},
+			},
+			"index_optimization_max_num_segments": schema.Int64Attribute{
+				Optional:    true,
+				Computed:    true,
+				Description: "Max number of segments for index optimization (>=1, defaults to 1)",
+				PlanModifiers: []planmodifier.Int64{
+					int64planmodifier.UseStateForUnknown(),
+				},
+			},
+			"index_optimization_disabled": schema.BoolAttribute{
+				Optional:    true,
+				Computed:    true,
+				Description: "Disable index optimization (defaults to false)",
+				PlanModifiers: []planmodifier.Bool{
+					boolplanmodifier.UseStateForUnknown(),
+				},
+			},
+			"default": schema.BoolAttribute{
+				Optional:    true,
+				Computed:    true,
+				Description: "Whether this is the default index set",
+				PlanModifiers: []planmodifier.Bool{
+					boolplanmodifier.UseStateForUnknown(),
+				},
+			},
+			"timeouts": timeouts.Attributes(ctx, timeouts.Opts{Create: true, Update: true, Delete: true}),
 		},
 		Blocks: map[string]schema.Block{
 			"rotation": schema.SingleNestedBlock{
@@ -456,7 +502,10 @@ func (r *indexSetResource) Delete(ctx context.Context, req resource.DeleteReques
 	defer cancel()
 
 	if err := r.client.WithContext(ctx).DeleteIndexSet(data.ID.ValueString()); err != nil {
-		resp.Diagnostics.AddError("Error deleting index set", err.Error())
+		// Deleting an already-gone resource should succeed silently — Delete must be idempotent.
+		if !errors.Is(err, client.ErrNotFound) {
+			resp.Diagnostics.AddError("Error deleting index set", err.Error())
+		}
 	}
 }
 

@@ -93,16 +93,19 @@ resource "graylog_index_set" "rotate_by_time" {
 
 ## Argument Reference
 
+An index set holds real data. **Only `index_prefix` (renaming) forces recreation.** Every other
+field is a safe, in-place update — none of them destroy or replace an existing index set.
+
 - `title` (String, Required) — Index set title.
 - `description` (String, Optional) — Description. Set it to `""` (or remove it) to clear an existing description.
 - `index_prefix` (String, Required) — Index name prefix (lowercase letters, numbers, dash, underscore). **Immutable**: changing it forces recreation of the index set (Elasticsearch/OpenSearch derive physical index names from it).
-- `shards` (Number, Optional) — Number of Elasticsearch shards (must be >= 0). **Immutable**: changing it forces recreation of the index set.
-- `replicas` (Number, Optional) — Number of Elasticsearch replicas (must be >= 0).
-- `index_analyzer` (String, Optional) — Elasticsearch analyzer to use (defaults to 'standard'). **Immutable**: changing it forces recreation of the index set.
-- `field_type_refresh_interval` (Number, Optional) — Field type refresh interval in milliseconds (defaults to 5000).
-- `index_optimization_max_num_segments` (Number, Optional) — Max number of segments for index optimization (>=1, defaults to 1).
-- `index_optimization_disabled` (Boolean, Optional) — Disable index optimization (defaults to false).
-- `default` (Boolean, Optional) — Whether this is the default index set. Note: this is sent as a plain field on the create/update body; some Graylog versions may require a dedicated "set default" API call to actually change which index set is default — verify against your server before relying on this to switch defaults.
+- `shards` (Number, Optional) — Number of Elasticsearch shards for indices Graylog rotates to *in the future* in this index set (must be >= 0). Safe to change in place — it does not affect already-written indices and never forces recreation.
+- `replicas` (Number, Optional) — Number of Elasticsearch replicas (must be >= 0). Safe to change in place.
+- `index_analyzer` (String, **Computed-only, not user-configurable**) — Elasticsearch analyzer Graylog has in use, reported back into state. Setting this attribute in config is rejected by Terraform ("Invalid Configuration for Read-Only Attribute"); there is no supported way to change it through this provider.
+- `field_type_refresh_interval` (Number, Optional) — Field type refresh interval in milliseconds (defaults to 5000). Safe to change in place.
+- `index_optimization_max_num_segments` (Number, Optional) — Max number of segments for index optimization (>=1, defaults to 1). Safe to change in place.
+- `index_optimization_disabled` (Boolean, Optional) — Disable index optimization (defaults to false). Safe to change in place.
+- `default` (Boolean, Optional) — Whether this is the default index set. Safe to change in place. Note: this is sent as a plain field on the create/update body; some Graylog versions may require a dedicated "set default" API call to actually change which index set is default — verify against your server before relying on this to switch defaults.
 - `timeouts` (Block, Optional) — Customize create/update/delete timeouts.
 
 ### rotation (Block) — Graylog 5+
