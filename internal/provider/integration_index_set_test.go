@@ -39,12 +39,13 @@ func TestIntegration_IndexSetCRUD(t *testing.T) {
 
 	// Prepare payload; Graylog 7 requires explicit replicas/indexOptimizationDisabled/isWritable
 	idx := &client.IndexSet{
-		Title:       "tf-prov-itest",
-		Description: "integration test index set",
-		IndexPrefix: "tf_itest_" + time.Now().Format("150405"),
-		Shards:      1,
-		Replicas:    0,
-		Default:     false,
+		Title:                    "tf-prov-itest",
+		Description:              "integration test index set",
+		IndexPrefix:              "tf_itest_" + time.Now().Format("150405"),
+		Shards:                   1,
+		Replicas:                 0,
+		FieldTypeRefreshInterval: 7000,
+		Default:                  false,
 	}
 	if c.APIVersion == client.APIV7 {
 		idx.Replicas = 1
@@ -68,15 +69,26 @@ func TestIntegration_IndexSetCRUD(t *testing.T) {
 	if got.IndexPrefix == "" || got.Title == "" {
 		t.Fatalf("unexpected GetIndexSet result: %+v", got)
 	}
+	if got.FieldTypeRefreshInterval != 7000 {
+		t.Fatalf("field_type_refresh_interval was not persisted on create: want 7000, got %d", got.FieldTypeRefreshInterval)
+	}
 
 	// Update
 	got.Title = "tf-prov-itest-upd"
+	got.FieldTypeRefreshInterval = 9000
 	upd, err := c.UpdateIndexSet(got.ID, got)
 	if err != nil {
 		t.Fatalf("UpdateIndexSet error: %v", err)
 	}
 	if upd.Title != "tf-prov-itest-upd" {
 		t.Fatalf("title was not updated: %+v", upd)
+	}
+	after, err := c.GetIndexSet(got.ID)
+	if err != nil {
+		t.Fatalf("GetIndexSet after update error: %v", err)
+	}
+	if after.FieldTypeRefreshInterval != 9000 {
+		t.Fatalf("field_type_refresh_interval was not persisted on update: want 9000, got %d", after.FieldTypeRefreshInterval)
 	}
 
 	// Delete

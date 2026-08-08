@@ -505,11 +505,13 @@ func (r *inputResource) Create(ctx context.Context, req resource.CreateRequest, 
 		payload, d := extractorModelToClient(data.Extractors[i])
 		resp.Diagnostics.Append(d...)
 		if d.HasError() {
+			resolveUnknownExtractorState(&data.Extractors[i])
 			continue
 		}
 		createdEx, cerr := r.client.WithContext(ctx).CreateInputExtractor(data.ID.ValueString(), payload)
 		if cerr != nil {
 			resp.Diagnostics.AddError("Error creating input extractor", cerr.Error())
+			resolveUnknownExtractorState(&data.Extractors[i])
 			continue
 		}
 		newModel, d2 := extractorClientToModel(*createdEx)
@@ -518,6 +520,18 @@ func (r *inputResource) Create(ctx context.Context, req resource.CreateRequest, 
 	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+}
+
+// resolveUnknownExtractorState prevents a secondary "invalid result object" error when Graylog
+// rejects one extractor after the parent input has already been created. Computed values may be
+// null in state, but must not remain unknown after Apply.
+func resolveUnknownExtractorState(m *inputExtractorModel) {
+	if m.ID.IsUnknown() {
+		m.ID = types.StringNull()
+	}
+	if m.Order.IsUnknown() {
+		m.Order = types.Int64Null()
+	}
 }
 
 func (r *inputResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {

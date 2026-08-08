@@ -1,0 +1,73 @@
+name: Feature request
+description: Suggest an improvement or new capability for the provider
+title: "[Feature]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for suggesting an improvement. Explain the user problem first so the proposal can be evaluated in context.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What problem are you trying to solve, and who is affected?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the provider behavior, schema, resource, or data source you would like.
+    validations:
+      required: true
+
+  - type: textarea
+    id: configuration
+    attributes:
+      label: Example Terraform configuration
+      description: Show how the proposed feature could be used, if applicable. Use synthetic values only.
+      render: hcl
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Describe any workarounds or alternative designs you considered.
+
+  - type: input
+    id: graylog_versions
+    attributes:
+      label: Relevant Graylog versions
+      description: Which Graylog versions support or require this capability?
+      placeholder: "Graylog 6.x and 7.x"
+
+  - type: dropdown
+    id: compatibility
+    attributes:
+      label: Compatibility impact
+      description: Could this require a schema migration or break existing configurations?
+      options:
+        - No known compatibility impact
+        - May require state migration
+        - May require a breaking change
+        - Unknown
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional_context
+    attributes:
+      label: Additional context
+      description: Link relevant Graylog API documentation or related issues.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Submission checklist
+      options:
+        - label: I searched existing issues and feature requests for duplicates.
+          required: true
+        - label: This request does not contain credentials or sensitive data.
+          required: true

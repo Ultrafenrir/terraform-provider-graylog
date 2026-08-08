@@ -1,0 +1,128 @@
+name: Bug report
+description: Report a reproducible problem with the Graylog Terraform provider
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting a bug. Search existing issues before submitting.
+
+        **Security:** Do not report vulnerabilities or include secrets here. Follow the [security policy](https://github.com/Ultrafenrir/terraform-provider-graylog/security/policy) instead.
+
+  - type: input
+    id: provider_version
+    attributes:
+      label: Provider version
+      description: The exact terraform-provider-graylog version in use.
+      placeholder: "v0.5.2"
+    validations:
+      required: true
+
+  - type: input
+    id: terraform_version
+    attributes:
+      label: Terraform version
+      description: Run `terraform version` and provide the Terraform version.
+      placeholder: "Terraform v1.12.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: graylog_version
+    attributes:
+      label: Graylog version
+      description: Select the affected Graylog major version.
+      options:
+        - "5.x"
+        - "6.x"
+        - "7.x"
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: operating_system
+    attributes:
+      label: Operating system
+      placeholder: "Ubuntu 24.04, macOS 15, Windows 11, etc."
+    validations:
+      required: true
+
+  - type: input
+    id: affected_objects
+    attributes:
+      label: Affected resources or data sources
+      description: List the Terraform resource or data source names involved.
+      placeholder: "graylog_input, graylog_index_set"
+    validations:
+      required: true
+
+  - type: textarea
+    id: configuration
+    attributes:
+      label: Minimal Terraform configuration
+      description: Provide the smallest sanitized configuration that reproduces the issue. Remove all secrets and private endpoints.
+      render: hcl
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: List the exact commands and sequence that trigger the problem.
+      placeholder: |
+        1. Run `terraform init`.
+        2. Run `terraform apply`.
+        3. Run `terraform plan` again.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include the complete error message if one was produced.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Paste sanitized Terraform or Graylog logs. Remove credentials, tokens, private URLs, and customer data.
+      render: shell
+
+  - type: dropdown
+    id: regression
+    attributes:
+      label: Is this a regression?
+      options:
+        - "No"
+        - "Yes"
+        - Unknown
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional_context
+    attributes:
+      label: Additional context
+      description: Add any other details that may help diagnose the issue.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Submission checklist
+      options:
+        - label: I searched existing issues and did not find a duplicate.
+          required: true
+        - label: I removed secrets and sensitive data from this report.
+          required: true

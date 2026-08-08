@@ -264,7 +264,7 @@ test-integration:
 	  RUN_FLAG=""; [ -n "$(RUN)" ] && RUN_FLAG="-run $(RUN)"; \
 	  export URL TOKEN; \
 	  PKG_EFF="$(PKG)"; [ -z "$$PKG_EFF" ] && PKG_EFF="./internal/..."; \
-	  go test -v -tags=integration $$RUN_FLAG -timeout $(TIMEOUT) $$PKG_EFF'; \
+	  go test -count=1 -v -tags=integration $$RUN_FLAG -timeout $(TIMEOUT) $$PKG_EFF'; \
 	status=$$?; \
 	$(MAKE) graylog-down; \
 	exit $$status

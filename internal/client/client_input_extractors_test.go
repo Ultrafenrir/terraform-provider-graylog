@@ -8,7 +8,7 @@ import (
 )
 
 // Regression test for #18: Graylog rejects "type" in create payloads and requires
-// converters to be present as an array, including when it is empty.
+// converters, target_field, and extractor_config to be non-null, including when empty.
 func TestCreateInputExtractor_UsesExtractorTypeAndEmptyConvertersArray(t *testing.T) {
 	var body map[string]any
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -24,10 +24,9 @@ func TestCreateInputExtractor_UsesExtractorTypeAndEmptyConvertersArray(t *testin
 
 	c := newInputTestClient(ts.URL)
 	extractor := &Extractor{
-		Title:           "Extract email",
-		ExtractorType:   "grok",
-		SourceField:     "message",
-		ExtractorConfig: map[string]any{"grok_pattern": "%{EMAILADDRESS}"},
+		Title:         "Extract email",
+		ExtractorType: "grok",
+		SourceField:   "message",
 	}
 
 	created, err := c.CreateInputExtractor("input-1", extractor)
@@ -49,5 +48,15 @@ func TestCreateInputExtractor_UsesExtractorTypeAndEmptyConvertersArray(t *testin
 	}
 	if len(converters) != 0 {
 		t.Fatalf("expected an empty converters array, got %#v", converters)
+	}
+	if got, exists := body["target_field"]; !exists || got != "" {
+		t.Fatalf("expected target_field to be an explicit empty string, got %#v", got)
+	}
+	extractorConfig, ok := body["extractor_config"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected extractor_config to be a JSON object, got %#v", body["extractor_config"])
+	}
+	if len(extractorConfig) != 0 {
+		t.Fatalf("expected an empty extractor_config object, got %#v", extractorConfig)
 	}
 }

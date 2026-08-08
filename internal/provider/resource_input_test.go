@@ -155,6 +155,22 @@ func TestExtractorModelToClient_DefaultsConvertersToEmptyList(t *testing.T) {
 	}
 }
 
+func TestResolveUnknownExtractorState(t *testing.T) {
+	m := inputExtractorModel{
+		ID:    types.StringUnknown(),
+		Order: types.Int64Unknown(),
+	}
+
+	resolveUnknownExtractorState(&m)
+
+	if !m.ID.IsNull() {
+		t.Fatalf("expected an unknown id to become null, got %#v", m.ID)
+	}
+	if !m.Order.IsNull() {
+		t.Fatalf("expected an unknown order to become null, got %#v", m.Order)
+	}
+}
+
 func TestInputResource_UpgradeStateV6ToV7(t *testing.T) {
 	ctx := context.Background()
 	r := &inputResource{}

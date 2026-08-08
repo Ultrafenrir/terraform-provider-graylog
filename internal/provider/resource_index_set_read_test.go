@@ -19,9 +19,14 @@ func TestIndexSet_NormalizesDefaultsAndFiltersTypeField(t *testing.T) {
 		IndexAnalyzer:             "", // должен стать "standard"
 		IndexOptimizationDisabled: false,
 		RotationStrategyClass:     "org.graylog2.indexer.rotation.strategies.MessageCountRotationStrategy",
-		RotationStrategyConfig:    map[string]any{"type": "org.graylog2.indexer.rotation.strategies.MessageCountRotationStrategyConfig", "max_docs_per_index": 10},
-		RetentionStrategyClass:    "org.graylog2.indexer.retention.strategies.DeletionRetentionStrategy",
-		RetentionStrategyConfig:   map[string]any{"type": "org.graylog2.indexer.retention.strategies.DeletionRetentionStrategyConfig", "max_number_of_indices": 2},
+		RotationStrategyConfig: map[string]any{
+			"type":                   "org.graylog2.indexer.rotation.strategies.MessageCountRotationStrategyConfig",
+			"max_docs_per_index":     10,
+			"max_rotation_period":    "",
+			"rotate_empty_index_set": false,
+		},
+		RetentionStrategyClass:  "org.graylog2.indexer.retention.strategies.DeletionRetentionStrategy",
+		RetentionStrategyConfig: map[string]any{"type": "org.graylog2.indexer.retention.strategies.DeletionRetentionStrategyConfig", "max_number_of_indices": 2},
 	}
 
 	data := indexSetModel{ID: types.StringValue("id1")}
@@ -48,6 +53,28 @@ func TestIndexSet_NormalizesDefaultsAndFiltersTypeField(t *testing.T) {
 	}
 	if rotationConfig["max_docs_per_index"] != "10" {
 		t.Fatalf("rotation config max_docs_per_index want '10', got %q", rotationConfig["max_docs_per_index"])
+	}
+	if _, ok := rotationConfig["max_rotation_period"]; ok {
+		t.Fatalf("empty server default max_rotation_period must be omitted: %#v", rotationConfig)
+	}
+	if _, ok := rotationConfig["rotate_empty_index_set"]; ok {
+		t.Fatalf("false server default rotate_empty_index_set must be omitted: %#v", rotationConfig)
+	}
+}
+
+func TestIndexSet_PreservesNonDefaultRotationConfig(t *testing.T) {
+	config := mapToStringMap(ctxBackground(), map[string]any{
+		"max_rotation_period":    "P1D",
+		"rotate_empty_index_set": true,
+	})
+	got := make(map[string]string)
+	config.ElementsAs(ctxBackground(), &got, false)
+
+	if got["max_rotation_period"] != "P1D" {
+		t.Fatalf("expected non-empty max_rotation_period to be preserved, got %#v", got)
+	}
+	if got["rotate_empty_index_set"] != "true" {
+		t.Fatalf("expected true rotate_empty_index_set to be preserved, got %#v", got)
 	}
 }
 

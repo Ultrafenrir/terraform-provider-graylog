@@ -1,28 +1,32 @@
----
-name: Pull Request
-about: Предложение изменений в провайдер Graylog
-title: '[TYPE] Краткое описание изменений'
-labels: enhancement
-assignees: ''
----
+## Summary
 
-## Что изменено
-- Кратко опишите изменения и мотивацию.
+Describe the change and its motivation.
 
-## Тип изменений
-- [ ] Bug fix (не ломает обратную совместимость)
-- [ ] Feature (новая функциональность)
-- [ ] Refactoring/Chore (без изменения функционала)
-- [ ] Documentation (docs/examples)
+## Type of change
 
-## Чек‑лист
-- [ ] Пройдены unit‑тесты (`go test ./...`)
-- [ ] Пройдены интеграционные тесты локально при необходимости (`make test-integration[-all]`)
-- [ ] Обновлена документация (`docs/`/`README.md`/`CHANGELOG.md`) при необходимости
-- [ ] Добавлены примеры (`examples/`) при необходимости
-- [ ] Соблюдён стиль кода (`go fmt`, `go vet`)
+- [ ] Bug fix
+- [ ] New feature
+- [ ] Refactoring or maintenance
+- [ ] Documentation
+- [ ] Breaking change
 
-## Скриншоты/логи (при наличии)
+## Testing
 
-## Backward compatibility
-- Описать, есть ли ломающие изменения и как мигрировать.
+Describe the tests run and the Graylog versions covered.
+
+## Checklist
+
+- [ ] I ran `make fmt` and `make lint`.
+- [ ] I added or updated unit tests.
+- [ ] I ran the relevant integration tests when the change touches the Graylog API.
+- [ ] I updated documentation, examples, and `CHANGELOG.md` when applicable.
+- [ ] I removed credentials, Terraform state, and sensitive data from this pull request.
+- [ ] I described compatibility and migration impact below.
+
+## Compatibility and migration impact
+
+Describe any breaking behavior, state migration, or Graylog version constraints.
+
+## Related issues
+
+Link related issues using `Fixes #123` or `Relates to #123`.

@@ -1602,17 +1602,21 @@ type Extractor struct {
 	// "extractor_type"; ListInputExtractors normalizes Type into ExtractorType.
 	Type        string `json:"type,omitempty"`
 	SourceField string `json:"source_field"`
-	TargetField     string                 `json:"target_field,omitempty"`
-	CursorStrategy  string                 `json:"cursor_strategy,omitempty"`
-	ExtractorConfig map[string]interface{} `json:"extractor_config,omitempty"`
+	// No omitempty: CreateExtractorRequest rejects an absent target_field as null.
+	// Extractors which do not use a target field must send an empty string.
+	TargetField    string `json:"target_field"`
+	CursorStrategy string `json:"cursor_strategy,omitempty"`
+	// No omitempty: extractor types without configuration still need an explicit
+	// empty object; an absent field is rejected as "Null extractorConfig".
+	ExtractorConfig map[string]interface{} `json:"extractor_config"`
 	// No omitempty: Graylog 6/7 reject an absent/null converters field
 	// ("Null converters"), an empty list must be sent explicitly.
-	Converters []ExtractorConverter `json:"converters"`
-	ConditionType string `json:"condition_type,omitempty"`
+	Converters    []ExtractorConverter `json:"converters"`
+	ConditionType string               `json:"condition_type,omitempty"`
 	// No omitempty: the create endpoint validates conditionValue as non-null
 	// ("Null conditionValue") even when condition_type is "none".
 	ConditionValue string `json:"condition_value"`
-	Order           int                    `json:"order,omitempty"`
+	Order          int    `json:"order,omitempty"`
 }
 
 // ExtractorConverter represents a single converter attached to an extractor.
@@ -1659,6 +1663,11 @@ func (c *Client) CreateInputExtractor(inputID string, extractor *Extractor) (*Ex
 	// A nil slice would still marshal as null; Graylog 6/7 require a list.
 	if extractor.Converters == nil {
 		extractor.Converters = []ExtractorConverter{}
+	}
+	// The API requires a non-null object even for extractor types such as
+	// copy_input which have no type-specific configuration.
+	if extractor.ExtractorConfig == nil {
+		extractor.ExtractorConfig = map[string]interface{}{}
 	}
 	// The create endpoint rejects null/absent enum fields; fall back to the
 	// schema defaults.

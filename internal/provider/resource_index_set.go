@@ -590,15 +590,41 @@ func mapToStringMap(ctx context.Context, in map[string]any) types.Map {
 	}
 	flat := map[string]string{}
 	for k, v := range in {
-		// Skip "type" field that Graylog automatically adds to strategy configs
-		// User doesn't configure it, so including it causes "new element appeared" errors
-		if k == "type" {
+		if omitServerDefaultStrategyConfig(k, v) {
 			continue
 		}
 		flat[k] = toString(v)
 	}
+	if len(flat) == 0 {
+		return types.MapNull(types.StringType)
+	}
 	mv, _ := types.MapValueFrom(ctx, types.StringType, flat)
 	return mv
+}
+
+// omitServerDefaultStrategyConfig removes values Graylog injects into rotation configs even
+// when they were not configured. This must not depend on keys already present in Terraform
+// state: older provider versions could persist these defaults, after which key-based filtering
+// alone preserved them forever and caused a perpetual "value -> null" plan.
+func omitServerDefaultStrategyConfig(key string, value any) bool {
+	switch key {
+	case "type":
+		return true
+	case "max_rotation_period":
+		return value == nil || strings.TrimSpace(toString(value)) == ""
+	case "rotate_empty_index_set":
+		if value == nil {
+			return true
+		}
+		switch v := value.(type) {
+		case bool:
+			return !v
+		case string:
+			v = strings.TrimSpace(v)
+			return v == "" || strings.EqualFold(v, "false")
+		}
+	}
+	return false
 }
 
 // applyIndexSetReadState normalizes IndexSet read values and fills the Terraform state model
