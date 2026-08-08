@@ -1,32 +1,48 @@
 ## Summary
 
-Describe the change and its motivation.
+<!-- Briefly explain the problem and how this pull request solves it. -->
+
+## Changes
+
+<!-- List the main implementation and user-facing changes. -->
+
+-
 
 ## Type of change
 
 - [ ] Bug fix
 - [ ] New feature
-- [ ] Refactoring or maintenance
+- [ ] Refactoring or maintenance change
 - [ ] Documentation
 - [ ] Breaking change
 
+## Related issues
+
+<!-- Use "Fixes #123" to close an issue automatically, or "Relates to #123". -->
+
 ## Testing
 
-Describe the tests run and the Graylog versions covered.
+<!-- List the commands run, their results, and the Graylog versions tested. -->
 
-## Checklist
-
-- [ ] I ran `make fmt` and `make lint`.
-- [ ] I added or updated unit tests.
-- [ ] I ran the relevant integration tests when the change touches the Graylog API.
-- [ ] I updated documentation, examples, and `CHANGELOG.md` when applicable.
-- [ ] I removed credentials, Terraform state, and sensitive data from this pull request.
-- [ ] I described compatibility and migration impact below.
+- Commands and results:
+- Graylog versions:
+- Not run (explain why):
 
 ## Compatibility and migration impact
 
-Describe any breaking behavior, state migration, or Graylog version constraints.
+<!-- Select one option and explain version constraints or migration steps. -->
 
-## Related issues
+- [ ] No user-facing or state compatibility impact
+- [ ] Backward-compatible user-facing change
+- [ ] Breaking change or state migration required
 
-Link related issues using `Fixes #123` or `Relates to #123`.
+Details:
+
+## Checklist
+
+- [ ] I reviewed my own changes.
+- [ ] Relevant formatting, lint, and unit checks pass.
+- [ ] Tests cover the change, or the Testing section explains why none are needed.
+- [ ] When applicable, Graylog API changes include integration coverage.
+- [ ] When applicable, documentation, examples, and `CHANGELOG.md` are updated.
+- [ ] This pull request contains no credentials, Terraform state, or sensitive data.
