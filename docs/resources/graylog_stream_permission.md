@@ -71,14 +71,27 @@ data "graylog_ldap_group_members" "devops" {
   group_name    = "devops"
 }
 
+# Graylog requires a password to create a profile; it is sent once and only
+# re-sent when the value changes, so later applies never push one to LDAP users
+resource "random_password" "devops_users" {
+  for_each = { for m in data.graylog_ldap_group_members.devops.members : m.username => m }
+  length   = 32
+}
+
 # Create Graylog users from LDAP
 resource "graylog_user" "devops_users" {
   for_each = { for m in data.graylog_ldap_group_members.devops.members : m.username => m }
 
-  username     = each.key
-  email        = each.value.email
-  set_password = false
-  roles        = ["DevOpsRole"]
+  username = each.key
+  email    = each.value.email
+  # Graylog requires at least two words here; the directory overwrites it on login
+  full_name = "${each.key} (directory)"
+  password  = random_password.devops_users[each.key].result
+  roles     = ["DevOpsRole"]
+
+  lifecycle {
+    ignore_changes = [full_name, email] # the directory overwrites these on login
+  }
 }
 
 # Grant stream access to DevOpsRole

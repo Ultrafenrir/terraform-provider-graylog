@@ -35,14 +35,25 @@ output "devops_members" {
 Using results to create users:
 
 ```hcl
+# Graylog requires a password to create a profile; it is sent once and only
+# re-sent when the value changes, so later applies never push one to LDAP users
+resource "random_password" "ldap_synced" {
+  for_each = { for m in data.graylog_ldap_group_members.devops.members : m.username => m }
+  length   = 32
+}
+
 resource "graylog_user" "ldap_synced" {
   for_each = { for m in data.graylog_ldap_group_members.devops.members : m.username => m }
 
-  username     = each.key
-  email        = each.value.email
-  full_name    = coalesce(each.value.display_name, each.key)
-  password     = "disabled"   # manage auth via LDAP/SSO; use a generated value if needed
-  set_password = false         # avoid leaking passwords into state/logs
+  username = each.key
+  email    = each.value.email
+  # Graylog requires at least two words here; the directory overwrites it on login
+  full_name = coalesce(each.value.display_name, "${each.key} (directory)")
+  password  = random_password.ldap_synced[each.key].result
+
+  lifecycle {
+    ignore_changes = [full_name, email] # the directory overwrites these on login
+  }
 }
 ```
 
@@ -57,15 +68,18 @@ locals {
 resource "graylog_user" "ldap_synced_with_roles" {
   for_each = { for m in data.graylog_ldap_group_members.devops.members : m.username => m }
 
-  username  = each.key
-  email     = each.value.email
-  full_name = coalesce(each.value.display_name, each.key)
-
-  # Manage login via LDAP/SSO; do not store plaintext passwords in TF state
-  set_password = false
+  username = each.key
+  email    = each.value.email
+  # Graylog requires at least two words here; the directory overwrites it on login
+  full_name = coalesce(each.value.display_name, "${each.key} (directory)")
+  password  = random_password.ldap_synced[each.key].result # bootstrap password from the example above
 
   # Assign roles derived from LDAP group
   roles = local.devops_roles
+
+  lifecycle {
+    ignore_changes = [full_name, email] # the directory overwrites these on login
+  }
 }
 ```
 
