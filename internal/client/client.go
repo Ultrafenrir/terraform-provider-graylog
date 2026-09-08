@@ -3498,3 +3498,60 @@ func (c *Client) SetActiveAuthBackend(id string) error {
 	_, err := c.doRequest("POST", "/api/system/authentication/services/configuration", body)
 	return err
 }
+
+// ---- Role identifiers ----
+
+// AuthzRole is a role as returned by /authz/roles, the only endpoint that
+// exposes the Mongo id. The legacy /roles/{name} endpoint this client uses
+// elsewhere is name-keyed and omits it entirely.
+type AuthzRole struct {
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Permissions []string `json:"permissions"`
+	ReadOnly    bool     `json:"read_only"`
+}
+
+// GetRoleByName resolves a role name to the record carrying its id.
+//
+// The name is sent as the endpoint's `query`, which narrows the walk to a
+// single page in practice, but that search is a substring match — "Reader"
+// also returns "API Browser Reader" — so the exact name is matched here
+// rather than trusting the first hit. Pagination follows the per_page the
+// server echoes back, not the one requested, in case the server caps it.
+//
+// The id matters because several Graylog APIs accept only the id and reject
+// nothing when given a name: an authentication backend whose default_roles
+// carry a name is stored without complaint and then fails every login with
+// "Authentication service unavailable".
+func (c *Client) GetRoleByName(name string) (*AuthzRole, error) {
+	const perPage = 100
+	for page := 1; ; page++ {
+		resp, err := c.doRequest("GET",
+			fmt.Sprintf("/api/authz/roles?page=%d&per_page=%d&query=%s&sort=name&order=asc",
+				page, perPage, url.QueryEscape(name)), nil)
+		if err != nil {
+			return nil, err
+		}
+		var out struct {
+			Total   int         `json:"total"`
+			PerPage int         `json:"per_page"`
+			Roles   []AuthzRole `json:"roles"`
+		}
+		if err := json.Unmarshal(resp, &out); err != nil {
+			return nil, fmt.Errorf("failed to decode roles: %w", err)
+		}
+		for _, role := range out.Roles {
+			if role.Name == name {
+				return &role, nil
+			}
+		}
+		pageSize := out.PerPage
+		if pageSize <= 0 {
+			pageSize = perPage
+		}
+		if len(out.Roles) == 0 || page*pageSize >= out.Total {
+			return nil, ErrNotFound
+		}
+	}
+}

@@ -3,6 +3,7 @@
 package provider
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -180,6 +181,81 @@ func TestAccAuthBackend_emptyPasswordRejected(t *testing.T) {
 				Config:      testAccAuthBackend("tf-acc-empty-password", ""),
 				PlanOnly:    true,
 				ExpectError: regexp.MustCompile(`(?s)system_user_password.*at least 1`),
+			},
+		},
+	})
+}
+
+// The reason the role id is exposed at all: default_roles only works with
+// ids. Graylog stores names without complaint and then refuses every login,
+// so both sources of an id have to reach the backend end to end and the
+// result has to survive a refresh without a diff.
+func TestAccAuthBackend_defaultRolesByID(t *testing.T) {
+	config := testAccProviderConfig() + `
+data "graylog_role" "reader" {
+  name = "Reader"
+}
+
+resource "graylog_role" "acc_viewers" {
+  name        = "tf-acc-backend-viewers"
+  description = "created by the test suite"
+  permissions = ["dashboards:read", "streams:read"]
+}
+
+resource "graylog_auth_backend" "with_roles" {
+  title                = "tf-acc-ldap-default-roles"
+  system_user_password = "admin"
+  default_roles        = [data.graylog_role.reader.id, graylog_role.acc_viewers.role_id]
+
+  config_json = jsonencode({
+    type                     = "ldap"
+    servers                  = [{ host = "openldap", port = 389 }]
+    transport_security       = "none"
+    verify_certificates      = false
+    system_user_dn           = "cn=admin,dc=example,dc=org"
+    user_full_name_attribute = "cn"
+    user_name_attribute      = "uid"
+    user_search_base         = "dc=example,dc=org"
+    user_search_pattern      = "(&(uid={0})(objectClass=person))"
+    user_unique_id_attribute = "entryUUID"
+  })
+}
+`
+	objectID := regexp.MustCompile(`^[0-9a-f]{24}$`)
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: config,
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr("graylog_auth_backend.with_roles", "default_roles.#", "2"),
+					resource.TestCheckTypeSetElemAttrPair(
+						"graylog_auth_backend.with_roles", "default_roles.*",
+						"data.graylog_role.reader", "id"),
+					resource.TestCheckTypeSetElemAttrPair(
+						"graylog_auth_backend.with_roles", "default_roles.*",
+						"graylog_role.acc_viewers", "role_id"),
+					// Every element is an id, never a name.
+					func(s *terraform.State) error {
+						rs, ok := s.RootModule().Resources["graylog_auth_backend.with_roles"]
+						if !ok {
+							return errors.New("graylog_auth_backend.with_roles is not in state")
+						}
+						for k, v := range rs.Primary.Attributes {
+							if strings.HasPrefix(k, "default_roles.") && k != "default_roles.#" && !objectID.MatchString(v) {
+								return fmt.Errorf("%s = %q is not a role id", k, v)
+							}
+						}
+						return nil
+					},
+				),
+			},
+			{
+				Config: config,
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{plancheck.ExpectEmptyPlan()},
+				},
 			},
 		},
 	})

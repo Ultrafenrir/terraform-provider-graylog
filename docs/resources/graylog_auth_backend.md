@@ -65,6 +65,23 @@ Graylog also adds fields of its own to a stored configuration — `email_attribu
 
 - `id` (String) — Authentication backend ID.
 
+## Destroying
+
+Graylog refuses to delete an authentication backend while anything still
+references it, and there are two such references:
+
+- the backend is the cluster's active one — destroy
+  `graylog_auth_backend_activation` first, which Terraform does on its own
+  when the activation refers to the backend by attribute;
+- user profiles created by it still exist. Every user who has logged in
+  through the backend holds one, and they are not managed by Terraform, so
+  `terraform destroy` fails with `<id> is still in use` until they are
+  removed.
+
+The provider does not delete those profiles for you: they carry roles,
+dashboards and saved searches, and removing them to satisfy a destroy would
+be a surprising amount of collateral damage.
+
 ## Import
 
 ```shell

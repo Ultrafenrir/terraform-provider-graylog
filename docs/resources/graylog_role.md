@@ -31,6 +31,7 @@ resource "graylog_role" "readonly" {
 ## Attributes Reference
 
 - `id` — идентификатор (совпадает с `name`).
+- `role_id` (String) — Mongo id of the role. Pass this wherever an API wants a role identifier — `graylog_auth_backend.default_roles` in particular, which accepts a name without complaint and then breaks every login. `id` remains the role name for backward compatibility.
 - `read_only` — флаг, показывающий, что роль системная и не может изменяться.
 
 ## Import

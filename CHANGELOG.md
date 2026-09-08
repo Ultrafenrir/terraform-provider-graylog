@@ -3,6 +3,16 @@
 ## Unreleased
 
 ### Added
+- **`graylog_role` data source** and a **`role_id` attribute on the `graylog_role` resource**: both expose the role's Mongo id, which several APIs require and which nothing else in the provider could produce — `graylog_role.id` is the role *name*, and the name-keyed `/roles/{name}` endpoint does not return an id at all.
+
+  This makes `graylog_auth_backend.default_roles` usable. That field takes ids; given names it is accepted with `200`, stored verbatim, and then every login fails with `Authentication service unavailable`, so the misconfiguration surfaces far from its cause. Verified end to end against a live directory: a backend whose `default_roles` carry names breaks authentication outright, while the same backend built from ids logs the user in and grants exactly the expected roles.
+
+  The lookup filters on an exact name, because `/authz/roles` searches by substring — a search for `Reader` also returns `API Browser Reader`, and taking the first hit would bind the wrong role.
+
+  `graylog_role.id` keeps its existing meaning so no state migration is needed.
+
+  Behaviour change for the existing `graylog_role` resource: create, refresh and update now resolve `role_id` through `/authz/roles` and **fail** if that lookup fails, instead of silently writing a null that would only surface later as a broken `default_roles`. The lookup needs the same `roles:read` permission the resource already required, so no new permission is involved.
+
 - **`graylog_auth_backend` and `graylog_auth_backend_activation`**: new resources for authentication service backends (LDAP and Active Directory) via `/system/authentication/services/{backends,configuration}`. The existing `graylog_ldap_setting` targets the pre-4.0 `/system/ldap/settings` endpoint, which modern Graylog no longer serves, so directory authentication previously had to be configured by hand or by an out-of-band script. `graylog_ldap_setting` is now deprecated in favour of these; it still works and is not scheduled for removal.
 
   Defining a backend and activating it are separate settings in Graylog, so they are separate resources. The activation is a cluster-wide singleton with the fixed ID `active`; destroying it returns the cluster to local authentication and leaves the backend in place.
@@ -39,6 +49,9 @@
 
 ### Tested
 - Reproduced live against Graylog 6.0.14 (docker-compose): confirmed the exact reported sequence (`shards = 4 -> 6` no longer shows `forces replacement`; changing an unrelated field like `title` no longer cascades every other unconfigured attribute to `(known after apply)`/replace; `index_analyzer = "..."` in config is now rejected at plan time instead of being silently accepted then fought over later).
+
+### Documented
+- **`graylog_auth_backend`**: destroying a backend fails while user profiles created by it still exist, which is a server-side guard rather than a provider limitation. The condition and why the provider does not delete those profiles are now written down.
 
 ## v0.5.0 (2026-07-20)
 

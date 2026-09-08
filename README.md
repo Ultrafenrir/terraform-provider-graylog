@@ -201,12 +201,14 @@ Combine with LDAP sync for complete automated RBAC.
 
 ## Supported Resources & Data Sources
 
-### Resources (22)
+### Resources (24)
 **Core Infrastructure:**
 - `graylog_stream` — Streams with routing rules
 - `graylog_input` — Inputs (Kafka, Syslog, GELF, Beats, etc.) with extractors
 - `graylog_output` — Outputs (GELF, HTTP, etc.)
 - `graylog_pipeline` — Processing pipelines
+- `graylog_pipeline_rule` — Pipeline rules
+- `graylog_pipeline_connection` — Pipeline-to-stream connections
 - `graylog_index_set` — Index set configuration
 - `graylog_dashboard` — Classic dashboards
 - `graylog_dashboard_widget` — Dashboard widgets
@@ -236,9 +238,10 @@ Combine with LDAP sync for complete automated RBAC.
 - `graylog_lookup_adapter` — Lookup data adapters ⭐
 - `graylog_lookup_table` — Lookup tables resolved by pipeline rules ⭐
 
-### Data Sources (13)
+### Data Sources (16)
 **Lookups:**
-- `graylog_stream`, `graylog_input`, `graylog_dashboard`, `graylog_user`, `graylog_index_set`, `graylog_event_notification`
+- `graylog_stream`, `graylog_input`, `graylog_dashboard`, `graylog_user`, `graylog_index_set`, `graylog_event_notification`, `graylog_role` ⭐
+- `graylog_index_set_default` — The default (writable) index set
 
 **Lists (pagination support):**
 - `graylog_streams`, `graylog_dashboards`, `graylog_inputs`, `graylog_users`, `graylog_index_sets`, `graylog_event_notifications`, `graylog_views`

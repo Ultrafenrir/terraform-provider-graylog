@@ -204,6 +204,7 @@ func (p *graylogProvider) DataSources(_ context.Context) []func() datasource.Dat
 		NewUserDataSource,
 		NewUsersListDataSource,
 		NewLDAPGroupMembersDataSource,
+		NewRoleDataSource,
 	}
 }
 

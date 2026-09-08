@@ -24,6 +24,11 @@ data "graylog_user" "alice" {
   username = "alice"
 }
 
+# Lookup a role by exact name; its id is the value graylog_auth_backend.default_roles requires
+data "graylog_role" "reader" {
+  name = "Reader"
+}
+
 # Lookup a dashboard by id
 data "graylog_dashboard" "main" {
   id = "<dashboard-id>"

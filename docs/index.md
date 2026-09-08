@@ -45,21 +45,28 @@ If multiple resources share the same title, import by ID to disambiguate.
 
 - Streams
   - Resources: [graylog_stream](resources/graylog_stream), [graylog_stream_permission](resources/graylog_stream_permission), [graylog_stream_output_binding](resources/graylog_stream_output_binding)
-  - Data sources: [graylog_streams](data-sources/graylog_streams)
+  - Data sources: [graylog_stream](data-sources/graylog_stream), [graylog_streams](data-sources/graylog_streams)
 - Inputs & Outputs
   - Resources: [graylog_input](resources/graylog_input), [graylog_output](resources/graylog_output)
+  - Data sources: [graylog_input](data-sources/graylog_input), [graylog_inputs](data-sources/graylog_inputs)
 - Index Sets
   - Resources: [graylog_index_set](resources/graylog_index_set)
+  - Data sources: [graylog_index_set](data-sources/graylog_index_set), [graylog_index_set_default](data-sources/graylog_index_set_default), [graylog_index_sets](data-sources/graylog_index_sets_list)
 - Pipelines
-  - Resources: [graylog_pipeline](resources/graylog_pipeline)
+  - Resources: [graylog_pipeline](resources/graylog_pipeline), [graylog_pipeline_rule](resources/graylog_pipeline_rule), [graylog_pipeline_connection](resources/graylog_pipeline_connection)
+- Lookup Tables
+  - Resources: [graylog_lookup_table](resources/graylog_lookup_table), [graylog_lookup_cache](resources/graylog_lookup_cache), [graylog_lookup_adapter](resources/graylog_lookup_adapter)
 - Dashboards
   - Resources: [graylog_dashboard](resources/graylog_dashboard), [graylog_dashboard_widget](resources/graylog_dashboard_widget), [graylog_dashboard_permission](resources/graylog_dashboard_permission)
+  - Data sources: [graylog_dashboard](data-sources/graylog_dashboard), [graylog_dashboards](data-sources/graylog_dashboards), [graylog_views](data-sources/graylog_views)
 - Alerts & Events
   - Resources: [graylog_alert](resources/graylog_alert), [graylog_event_notification](resources/graylog_event_notification)
-  - Data sources: [graylog_event_notifications](data-sources/graylog_event_notifications)
+  - Data sources: [graylog_event_notification](data-sources/graylog_event_notification), [graylog_event_notifications](data-sources/graylog_event_notifications_list)
 - Users & Security
-  - Resources: [graylog_user](resources/graylog_user), [graylog_role](resources/graylog_role), [graylog_ldap_setting](resources/graylog_ldap_setting)
-  - Data sources: [graylog_user](data-sources/graylog_user), [graylog_users](data-sources/graylog_users), [graylog_ldap_group_members](data-sources/graylog_ldap_group_members)
+  - Resources: [graylog_user](resources/graylog_user), [graylog_role](resources/graylog_role), [graylog_auth_backend](resources/graylog_auth_backend), [graylog_auth_backend_activation](resources/graylog_auth_backend_activation), [graylog_ldap_setting](resources/graylog_ldap_setting)
+  - Data sources: [graylog_user](data-sources/graylog_user), [graylog_users](data-sources/graylog_users), [graylog_role](data-sources/graylog_role), [graylog_ldap_group_members](data-sources/graylog_ldap_group_members)
+- Cluster Configuration
+  - Resources: [graylog_cluster_config](resources/graylog_cluster_config)
 - OpenSearch & Backups
   - Resources: [graylog_opensearch_snapshot_repository](resources/graylog_opensearch_snapshot_repository)
 
