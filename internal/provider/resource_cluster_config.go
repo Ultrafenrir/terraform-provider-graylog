@@ -57,7 +57,9 @@ func (r *clusterConfigResource) Schema(ctx context.Context, _ resource.SchemaReq
 				Required: true,
 				Description: "The configuration document, JSON-encoded. Graylog deserializes it into the target " +
 					"class and rejects incomplete documents, so every field that class requires must be present — " +
-					"this is a whole-document replace, not a patch. Key order and whitespace are not significant.",
+					"this is a whole-document replace, not a patch. Key order and whitespace are not significant. " +
+					"Only the keys present here take part in drift detection; defaults the server materializes " +
+					"into the stored document are ignored.",
 			},
 			"timeouts": timeouts.Attributes(ctx, timeouts.Opts{Create: true, Update: true, Delete: true}),
 		},
@@ -89,11 +91,67 @@ func validatedDocument(raw string) (json.RawMessage, error) {
 	return json.RawMessage(raw), nil
 }
 
+// isEncryptedValueSentinel reports whether v is the {"is_set": <bool>} object
+// Graylog echoes in place of an EncryptedValue field. The shape is matched
+// strictly so a practitioner's own object with an is_set key is left alone.
+func isEncryptedValueSentinel(v any) bool {
+	obj, ok := v.(map[string]any)
+	if !ok || len(obj) != 1 {
+		return false
+	}
+	_, ok = obj["is_set"].(bool)
+	return ok
+}
+
+// stripEncryptedValueSentinels removes EncryptedValue sentinels from a decoded
+// document, recursing into nested objects. The sentinel is read-only: writing
+// it back is rejected with "set_value must be a string and cannot be missing",
+// so a document that carries one can never be applied.
+func stripEncryptedValueSentinels(v any) {
+	obj, ok := v.(map[string]any)
+	if !ok {
+		return
+	}
+	for key, value := range obj {
+		if isEncryptedValueSentinel(value) {
+			delete(obj, key)
+			continue
+		}
+		stripEncryptedValueSentinels(value)
+	}
+}
+
+// refreshClusterConfigDocument turns the server document into the value
+// config_json should hold after a read.
+//
+// Graylog does not store every class verbatim. GeoIpResolverConfig, for one,
+// echoes eight keys the practitioner never sent, among them the EncryptedValue
+// sentinel {"is_set": false} that the server itself refuses on a write. So
+// the echo is projected onto the keys present in the state document before
+// it is compared: server-materialized defaults never show up as drift, while
+// a managed key that changed server-side still does.
+//
+// Sentinels are dropped first. With a mask that makes no observable
+// difference, but an imported resource has no mask yet and adopts the whole
+// document; stripping keeps that document something that can be applied.
+func refreshClusterConfigDocument(serverJSON, stateJSON string) (string, error) {
+	server, err := decodeJSONPreservingNumbers(serverJSON)
+	if err != nil {
+		return "", fmt.Errorf("server returned a document that is not valid JSON: %w", err)
+	}
+	stripEncryptedValueSentinels(server)
+	stripped, err := CanonicalizeJSONValue(server)
+	if err != nil {
+		return "", err
+	}
+	return ProjectAndCanonicalizeJSON(stripped, stateJSON)
+}
+
 // write pushes the planned document to Graylog. State keeps the
-// practitioner's document rather than the server echo: Graylog stores the
-// document verbatim, so the two are equivalent, and writing back a
-// re-serialized copy would risk "inconsistent result after apply" over
-// nothing more than whitespace or key order.
+// practitioner's document rather than the server echo: Read compares only
+// the keys the practitioner manages, so the two are equivalent for drift
+// purposes, and writing back a re-serialized copy would risk "inconsistent
+// result after apply" over nothing more than whitespace or key order.
 func (r *clusterConfigResource) write(ctx context.Context, data *clusterConfigModel) error {
 	doc, err := validatedDocument(data.ConfigJSON.ValueString())
 	if err != nil {
@@ -155,10 +213,9 @@ func (r *clusterConfigResource) Read(ctx context.Context, req resource.ReadReque
 		return
 	}
 
-	serverDoc, err := CanonicalizeJSONFromString(string(raw))
+	serverDoc, err := refreshClusterConfigDocument(string(raw), data.ConfigJSON.ValueString())
 	if err != nil {
-		resp.Diagnostics.AddError("Error reading cluster configuration",
-			fmt.Sprintf("server returned a document that is not valid JSON: %v", err))
+		resp.Diagnostics.AddError("Error reading cluster configuration", err.Error())
 		return
 	}
 	stateDoc, err := CanonicalizeJSONFromString(data.ConfigJSON.ValueString())
@@ -168,9 +225,10 @@ func (r *clusterConfigResource) Read(ctx context.Context, req resource.ReadReque
 		stateDoc = ""
 	}
 	if serverDoc != stateDoc {
-		// Real drift. Storing the canonical server document makes the change
-		// visible in the next plan; when the documents match, the
-		// practitioner's original formatting is left untouched.
+		// Drift in a managed key, or an import with no document yet. Storing
+		// the projected server document makes the change visible in the next
+		// plan; when the documents match, the practitioner's original
+		// formatting is left untouched.
 		data.ConfigJSON = types.StringValue(serverDoc)
 	}
 
