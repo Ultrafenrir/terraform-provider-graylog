@@ -24,11 +24,15 @@ func clusterConfigTestClient(t *testing.T) *client.Client {
 	return client.New(baseURL, token)
 }
 
-// The resource stores the practitioner's document in state and never the
-// server echo, which is only sound if Graylog persists cluster configuration
-// verbatim. This asserts exactly that invariant on every matrix version: if
-// some version ever starts enriching stored documents with materialized
-// defaults, this fails and the Read strategy has to change.
+// State keeps the practitioner's document, and Read compares only the keys
+// in it, so a class that materializes extra keys into the stored document
+// never causes a diff. This asserts the stronger property for the probe
+// classes it chooses: those are stored verbatim on every matrix version, and
+// writing the echo back unchanged is a no-op. It is deliberately not a claim
+// about every class: org.graylog.plugins.map.config.GeoIpResolverConfig is a
+// known non-verbatim one, echoing eight keys that were never sent, one of
+// them the EncryptedValue sentinel {"is_set": false} that Graylog itself
+// rejects on a write.
 func TestIntegration_ClusterConfigRoundTripIsVerbatim(t *testing.T) {
 	c := clusterConfigTestClient(t)
 

@@ -45,6 +45,12 @@ curl -u admin:<password> \
 
 The exact field set differs between Graylog versions — `UserConfiguration` takes two fields on 6.x and five on 7.x — so a document written for one version may be rejected by another.
 
+## About `config_json`
+
+Graylog does not store every class verbatim. Some classes materialize defaults into the stored document: `org.graylog.plugins.map.config.GeoIpResolverConfig` echoes eight keys back that were never sent, such as `use_s3` and `azure_cloud`. Only the keys present in your configuration take part in drift detection, so those additions never show up as a diff. A key you *do* manage changing server-side is still reported.
+
+Classes with encrypted fields (`GeoIpResolverConfig`'s `azure_account_key`, for one) echo an `{"is_set": true|false}` sentinel in place of the value. That sentinel is never a valid write value — Graylog rejects it with `set_value must be a string and cannot be missing` — which is exactly why only your keys are compared: no writable document could ever equal the echo. It also means such a field cannot be managed through this resource: a value you write is never read back, so a diff on it would never converge.
+
 ## Which classes are accepted
 
 The class must be resolvable by the server *and* covered by the server's `safe_classes` setting, which defaults to the `org.graylog.` and `org.graylog2.` prefixes. Graylog answers:
@@ -78,4 +84,4 @@ Destroying the resource deletes the stored document, which makes Graylog fall ba
 terraform import graylog_cluster_config.users org.graylog2.users.UserConfiguration
 ```
 
-Import stores the server's document in canonical JSON form, so the first plan afterwards may show a formatting-only difference against your configuration. Applying once reconciles it.
+Import stores the server's document in canonical JSON form, with any encrypted-field sentinels dropped so that the adopted document can be applied. The first plan afterwards may show a difference against your configuration — formatting, plus any server-materialized keys that are not in it. Applying once reconciles it.
