@@ -67,36 +67,57 @@ output "devops_users" {
 ## Step 2: Create Graylog Users from LDAP
 
 ```hcl
+# Graylog refuses to create a user without a password. The provider sends it
+# once on create and re-sends it only when the value changes, so later applies
+# (e.g. a roles change) never touch it and the 403 Graylog returns when the
+# password of an external user is changed does not occur. Members log in via LDAP.
+resource "random_password" "devops_users" {
+  for_each = { for m in data.graylog_ldap_group_members.devops.members : m.username => m }
+  length   = 32
+}
+
 # Create users for DevOps group members
 resource "graylog_user" "devops_users" {
   for_each = { for m in data.graylog_ldap_group_members.devops.members : m.username => m }
 
-  username  = each.key
-  email     = each.value.email
-  full_name = coalesce(each.value.display_name, each.key)
-
-  # Security best practice: do not store passwords in Terraform state
-  # Users will authenticate via LDAP/SSO in Graylog
-  set_password = false
+  username = each.key
+  email    = each.value.email
+  # Graylog requires at least two words here; the directory overwrites it on login
+  full_name = coalesce(each.value.display_name, "${each.key} (directory)")
+  password  = random_password.devops_users[each.key].result
 
   # Assign roles based on group membership
   roles = ["Reader", "DevOpsRole"]
 
   # Optional: timezone, session timeout
-  timezone         = "UTC"
-  session_timeout  = 3600000  # 1 hour in ms
+  timezone           = "UTC"
+  session_timeout_ms = 3600000 # 1 hour
+
+  # The directory overwrites full_name and email on every login
+  lifecycle {
+    ignore_changes = [full_name, email]
+  }
 }
 
 # Create users for Security group
+resource "random_password" "security_users" {
+  for_each = { for m in data.graylog_ldap_group_members.security.members : m.username => m }
+  length   = 32
+}
+
 resource "graylog_user" "security_users" {
   for_each = { for m in data.graylog_ldap_group_members.security.members : m.username => m }
 
-  username  = each.key
-  email     = each.value.email
-  full_name = coalesce(each.value.display_name, each.key)
+  username = each.key
+  email    = each.value.email
+  # Graylog requires at least two words here; the directory overwrites it on login
+  full_name = coalesce(each.value.display_name, "${each.key} (directory)")
+  password  = random_password.security_users[each.key].result
+  roles     = ["Reader", "SecurityRole"]
 
-  set_password = false
-  roles        = ["Reader", "SecurityRole"]
+  lifecycle {
+    ignore_changes = [full_name, email]
+  }
 }
 ```
 
@@ -195,6 +216,10 @@ terraform {
       source  = "Ultrafenrir/graylog"
       version = "~> 0.3"
     }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.0"
+    }
   }
 }
 
@@ -267,15 +292,26 @@ locals {
   ]...)
 }
 
+# Bootstrap password required by Graylog on create; never re-sent unless changed
+resource "random_password" "ldap_synced" {
+  for_each = local.all_ldap_users
+  length   = 32
+}
+
 # Create users (deduplicated by username)
 resource "graylog_user" "ldap_synced" {
   for_each = local.all_ldap_users
 
-  username     = each.value.username
-  email        = each.value.email
-  full_name    = coalesce(each.value.display_name, each.value.username)
-  set_password = false
-  roles        = each.value.roles
+  username = each.value.username
+  email    = each.value.email
+  # Graylog requires at least two words here; the directory overwrites it on login
+  full_name = coalesce(each.value.display_name, "${each.value.username} (directory)")
+  password  = random_password.ldap_synced[each.key].result
+  roles     = each.value.roles
+
+  lifecycle {
+    ignore_changes = [full_name, email] # the directory overwrites these on login
+  }
 }
 
 # Create roles

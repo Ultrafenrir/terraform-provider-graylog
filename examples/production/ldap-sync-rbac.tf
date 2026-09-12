@@ -11,6 +11,10 @@ terraform {
       source  = "Ultrafenrir/graylog"
       version = "~> 0.3"
     }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.0"
+    }
   }
 }
 
@@ -61,9 +65,9 @@ variable "ldap_base_dn" {
 locals {
   ldap_groups = {
     devops = {
-      group_name  = "devops"
+      group_name   = "devops"
       graylog_role = "DevOpsRole"
-      description = "DevOps team members"
+      description  = "DevOps team members"
       base_permissions = [
         "dashboards:read",
         "inputs:read",
@@ -77,9 +81,9 @@ locals {
     }
 
     security = {
-      group_name  = "security-team"
+      group_name   = "security-team"
       graylog_role = "SecurityRole"
-      description = "Security team members"
+      description  = "Security team members"
       base_permissions = [
         "dashboards:read",
         "event_definitions:read",
@@ -93,9 +97,9 @@ locals {
     }
 
     engineering = {
-      group_name  = "engineering"
+      group_name   = "engineering"
       graylog_role = "EngineeringRole"
-      description = "Engineering team members"
+      description  = "Engineering team members"
       base_permissions = [
         "dashboards:read",
         "inputs:read",
@@ -103,9 +107,9 @@ locals {
         "pipelines:read",
       ]
       stream_permissions = {
-        app_logs      = ["read"]
-        app_metrics   = ["read"]
-        debug_logs    = ["read", "edit"]
+        app_logs    = ["read"]
+        app_metrics = ["read"]
+        debug_logs  = ["read", "edit"]
       }
     }
   }
@@ -132,7 +136,7 @@ locals {
         username     = member.username
         email        = member.email
         display_name = member.display_name
-        roles        = []  # Will be populated below
+        roles        = [] # Will be populated below
       }
     }
   ]...)
@@ -142,7 +146,7 @@ locals {
     for username, user_data in local.user_role_map :
     username => merge(user_data, {
       roles = distinct(flatten([
-        "Reader",  # All users get Reader role
+        "Reader", # All users get Reader role
         [
           for team_key, team_config in local.ldap_groups :
           team_config.graylog_role
@@ -164,23 +168,36 @@ resource "graylog_role" "team_roles" {
   permissions = each.value.base_permissions
 }
 
+# Graylog refuses to create a user without a password. The provider sends it
+# once on create and re-sends it only when the value changes, so later applies
+# (e.g. a roles change) never touch it and the 403 Graylog returns when the
+# password of an external user is changed does not occur. Users log in via LDAP.
+resource "random_password" "ldap_users" {
+  for_each = local.users_with_roles
+  length   = 32
+}
+
 # Create Graylog Users from LDAP
 resource "graylog_user" "ldap_users" {
   for_each = local.users_with_roles
 
-  username  = each.value.username
-  email     = each.value.email
-  full_name = coalesce(each.value.display_name, each.value.username)
-
-  # Users authenticate via LDAP; no password storage in Terraform
-  set_password = false
+  username = each.value.username
+  email    = each.value.email
+  # Graylog requires at least two words here; the directory overwrites it on login
+  full_name = coalesce(each.value.display_name, "${each.value.username} (directory)")
+  password  = random_password.ldap_users[each.key].result
 
   # Assign accumulated roles
   roles = each.value.roles
 
   # Optional settings
-  timezone         = "UTC"
-  session_timeout  = 3600000  # 1 hour
+  timezone           = "UTC"
+  session_timeout_ms = 3600000 # 1 hour
+
+  # The directory overwrites full_name and email on every login
+  lifecycle {
+    ignore_changes = [full_name, email]
+  }
 }
 
 # Create Streams
@@ -224,7 +241,7 @@ resource "graylog_stream" "team_streams" {
 
   rule {
     field = each.value.field
-    type  = 1  # Exact match
+    type  = 1 # Exact match
     value = each.value.value
   }
 }

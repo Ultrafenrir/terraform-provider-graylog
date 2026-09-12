@@ -2945,7 +2945,9 @@ type User struct {
 	// Graylog 6/7 report the state as account_status (enabled/disabled)
 	// instead of a boolean; used to derive Disabled when reading.
 	AccountStatus string `json:"account_status,omitempty"`
-	Password      string `json:"password,omitempty"`
+	// Password is only used by CreateUser. UpdateUser ignores it; change a
+	// password with SetUserPassword.
+	Password string `json:"password,omitempty"`
 }
 
 func (c *Client) CreateUser(u *User) (*User, error) {
@@ -2962,15 +2964,20 @@ func (c *Client) CreateUser(u *User) (*User, error) {
 			first = strings.TrimSpace(first[:idx])
 		}
 		m := map[string]any{
-			"username":           u.Username,
-			"first_name":         first,
-			"last_name":          last,
-			"email":              u.Email,
-			"roles":              u.Roles,
-			"permissions":        []string{},
-			"timezone":           u.Timezone,
-			"session_timeout_ms": u.SessionTimeoutMs,
-			"password":           u.Password,
+			"username":    u.Username,
+			"first_name":  first,
+			"last_name":   last,
+			"email":       u.Email,
+			"roles":       u.Roles,
+			"permissions": []string{},
+			"timezone":    u.Timezone,
+			"password":    u.Password,
+		}
+		// A session timeout of 0 is accepted by the API but makes every
+		// interactive login fail with "Session timeout is set to 0 seconds";
+		// leave it out so Graylog applies its own default.
+		if u.SessionTimeoutMs != 0 {
+			m["session_timeout_ms"] = u.SessionTimeoutMs
 		}
 		// 'disabled' may be unsupported in CreateUserRequest; применим через Update при необходимости
 		body = m
@@ -3005,6 +3012,8 @@ func (c *Client) GetUser(username string) (*User, error) {
 	return &out, nil
 }
 
+// UpdateUser updates the user's profile, roles and status. u.Password is
+// ignored; use SetUserPassword.
 func (c *Client) UpdateUser(username string, u *User) (*User, error) {
 	// Унифицированный путь для всех версий
 	path := fmt.Sprintf("/api/users/%s", username)
@@ -3059,11 +3068,6 @@ func (c *Client) UpdateUser(username string, u *User) (*User, error) {
 			}
 			_, _ = c.doRequest("POST", fmt.Sprintf("/api/users/%s/%s", id, verb), nil)
 		}
-		if u.Password != "" {
-			if _, err := c.doRequest("PUT", fmt.Sprintf("/api/users/%s/password", id), map[string]string{"password": u.Password}); err != nil {
-				return nil, err
-			}
-		}
 		// Вернуть актуальное состояние
 		return c.GetUser(username)
 	}
@@ -3074,16 +3078,24 @@ func (c *Client) UpdateUser(username string, u *User) (*User, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Если задан пароль — выполнить отдельный вызов смены пароля
-	if u.Password != "" {
-		ppath := fmt.Sprintf("/api/users/%s/password", username)
-		_, err := c.doRequest("PUT", ppath, map[string]string{"password": u.Password})
-		if err != nil {
-			return nil, err
-		}
-	}
 	// Вернуть актуальное состояние
 	return c.GetUser(username)
+}
+
+// SetUserPassword changes the password of an existing user. It is a separate
+// call from UpdateUser because Graylog answers 403 "Cannot change password
+// for external user" for directory-managed accounts, so it must only be sent
+// when the password actually changed.
+func (c *Client) SetUserPassword(username, password string) error {
+	id := username
+	// Graylog 6/7 want the user's ObjectId in the path (see UpdateUser).
+	if c.APIVersion == APIV6 || c.APIVersion == APIV7 {
+		if current, err := c.GetUser(username); err == nil && current.ID != "" {
+			id = current.ID
+		}
+	}
+	_, err := c.doRequest("PUT", fmt.Sprintf("/api/users/%s/password", id), map[string]string{"password": password})
+	return err
 }
 
 func (c *Client) DeleteUser(username string) error {
