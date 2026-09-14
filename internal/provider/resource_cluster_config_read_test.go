@@ -83,10 +83,14 @@ func TestRefreshClusterConfigDocument_ImportAdoptsServerDocumentWithoutSentinels
 }
 
 // Only the exact {"is_set": <bool>} shape is a sentinel; anything else the
-// practitioner may have written stays, and sentinels nested deeper go too.
+// practitioner may have written stays. Sentinels nested deeper go too,
+// whether under an object or inside an object within an array. A sentinel
+// that is itself an array element stays, since removing it would shift
+// positions.
 func TestRefreshClusterConfigDocument_SentinelShape(t *testing.T) {
-	server := `{"secret":{"is_set":true},"nested":{"inner":{"is_set":false},"kept":1},"flag":{"is_set":"yes"},"pair":{"is_set":true,"other":1}}`
-	want := `{"flag":{"is_set":"yes"},"nested":{"kept":1},"pair":{"is_set":true,"other":1}}`
+	server := `{"secret":{"is_set":true},"nested":{"inner":{"is_set":false},"kept":1},"flag":{"is_set":"yes"},"pair":{"is_set":true,"other":1},` +
+		`"list":[{"token":{"is_set":true},"kept":2},[{"deep":{"is_set":false}}],{"is_set":true}]}`
+	want := `{"flag":{"is_set":"yes"},"list":[{"kept":2},[{}],{"is_set":true}],"nested":{"kept":1},"pair":{"is_set":true,"other":1}}`
 
 	got, err := refreshClusterConfigDocument(server, "")
 	if err != nil {

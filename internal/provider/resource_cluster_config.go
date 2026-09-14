@@ -104,20 +104,27 @@ func isEncryptedValueSentinel(v any) bool {
 }
 
 // stripEncryptedValueSentinels removes EncryptedValue sentinels from a decoded
-// document, recursing into nested objects. The sentinel is read-only: writing
-// it back is rejected with "set_value must be a string and cannot be missing",
-// so a document that carries one can never be applied.
+// document, recursing into nested objects and arrays. The sentinel is
+// read-only: writing it back is rejected with "set_value must be a string and
+// cannot be missing", so a document that carries one can never be applied.
+//
+// Only object keys are removed. A sentinel that is itself an array element is
+// left in place: dropping it would shift the positions of its neighbours, and
+// Graylog models encrypted values as fields, never as list items.
 func stripEncryptedValueSentinels(v any) {
-	obj, ok := v.(map[string]any)
-	if !ok {
-		return
-	}
-	for key, value := range obj {
-		if isEncryptedValueSentinel(value) {
-			delete(obj, key)
-			continue
+	switch node := v.(type) {
+	case map[string]any:
+		for key, value := range node {
+			if isEncryptedValueSentinel(value) {
+				delete(node, key)
+				continue
+			}
+			stripEncryptedValueSentinels(value)
 		}
-		stripEncryptedValueSentinels(value)
+	case []any:
+		for _, element := range node {
+			stripEncryptedValueSentinels(element)
+		}
 	}
 }
 
