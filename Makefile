@@ -1,7 +1,15 @@
 PLUGIN=terraform-provider-graylog
 VERSION=0.3.4
-# Graylog version without image prefix (e.g., 5.0, 6.0, 7.0)
-GRAYLOG_VERSION ?= 6.0
+# Latest stable patch releases for every supported Graylog major line.
+GRAYLOG_5_VERSION ?= 5.2.12
+GRAYLOG_6_0_VERSION ?= 6.0.14
+GRAYLOG_6_1_VERSION ?= 6.1.16
+GRAYLOG_6_2_VERSION ?= 6.2.14
+GRAYLOG_6_VERSION ?= 6.3.15
+GRAYLOG_7_0_VERSION ?= 7.0.13
+GRAYLOG_7_VERSION ?= 7.1.9
+GRAYLOG_TEST_VERSIONS ?= $(GRAYLOG_5_VERSION) $(GRAYLOG_6_VERSION) $(GRAYLOG_7_VERSION)
+GRAYLOG_VERSION ?= $(GRAYLOG_6_VERSION)
 COMPOSE_FILE := $(CURDIR)/docker-compose.yml
 COMPOSE_PROJECT_NAME ?= tf-graylog
 
@@ -134,7 +142,7 @@ graylog-up: graylog-clean
 	  if docker compose version >/dev/null 2>&1; then COMPOSE_BIN="docker"; COMPOSE_SUB="compose"; \
 	  elif docker-compose version >/dev/null 2>&1; then COMPOSE_BIN="docker-compose"; COMPOSE_SUB=""; \
 	  else echo "No docker compose found" >&2; exit 127; fi; \
-	  ver="$(GRAYLOG_VERSION)"; case "$$ver" in 5|5.) ver="5.0";; 6|6.) ver="6.0";; 7|7.) ver="7.0";; esac; \
+	  ver="$(GRAYLOG_VERSION)"; case "$$ver" in 5|5.x) ver="$(GRAYLOG_5_VERSION)";; 6|6.x) ver="$(GRAYLOG_6_VERSION)";; 7|7.x) ver="$(GRAYLOG_7_VERSION)";; esac; \
 	  mongo="$${MONGO_TAG:-7.0}"; \
 	  os="$${OPENSEARCH_TAG:-2.17.1}"; \
 	  echo Using MongoDB $$mongo and OpenSearch $$os for Graylog $$ver with compose file "$(COMPOSE_FILE)"; \
@@ -153,7 +161,7 @@ test-acc-one:
 # Run acceptance tests sequentially for Graylog 5, 6, and 7
 test-acc-all:
 	@set -e; \
-	for ver in 5.0 6.0 7.0; do \
+	for ver in $(GRAYLOG_TEST_VERSIONS); do \
 	  echo "==== Running acceptance tests for Graylog $$ver ===="; \
 	  $(MAKE) GRAYLOG_VERSION=$$ver test-acc-one; \
 	done; \
@@ -179,7 +187,7 @@ graylog-up-graylog:
 	  if docker compose version >/dev/null 2>&1; then COMPOSE_BIN="docker"; COMPOSE_SUB="compose"; \
 	  elif docker-compose version >/dev/null 2>&1; then COMPOSE_BIN="docker-compose"; COMPOSE_SUB=""; \
 	  else echo "No docker compose found" >&2; exit 127; fi; \
-	  ver="$(GRAYLOG_VERSION)"; case "$$ver" in 5|5.) ver="5.0";; 6|6.) ver="6.0";; 7|7.) ver="7.0";; esac; \
+	  ver="$(GRAYLOG_VERSION)"; case "$$ver" in 5|5.x) ver="$(GRAYLOG_5_VERSION)";; 6|6.x) ver="$(GRAYLOG_6_VERSION)";; 7|7.x) ver="$(GRAYLOG_7_VERSION)";; esac; \
 	  mongo="$${MONGO_TAG:-7.0}"; \
 	  os="$${OPENSEARCH_TAG:-2.17.1}"; \
 	  echo Using MongoDB $$mongo and OpenSearch $$os; \
@@ -277,7 +285,7 @@ test-integration-one:
 # Run integration tests sequentially for Graylog 5, 6, and 7
 test-integration-all:
 	@set -e; \
-	for ver in 5.0 6.0 7.0; do \
+	for ver in $(GRAYLOG_TEST_VERSIONS); do \
 	  echo "==== Running integration tests for Graylog $$ver ===="; \
 	  $(MAKE) GRAYLOG_VERSION=$$ver test-integration-one; \
 	done; \
@@ -340,22 +348,26 @@ test-migration:
 	  export TF_VAR_url TF_VAR_token TF_VAR_prefix TF_CLI_CONFIG_FILE; \
 	  mkdir -p test/migration/shared; \
 	  echo "==== Step 1: Graylog 5.x ===="; \
-	  $(MAKE) GRAYLOG_VERSION=5.0 graylog-up; \
+	  $(MAKE) GRAYLOG_VERSION=$(GRAYLOG_5_VERSION) graylog-up; \
 	  $(MAKE) graylog-wait; \
 	  terraform -chdir=test/migration/step1 init -upgrade; \
 	  terraform -chdir=test/migration/step1 apply -auto-approve; \
 	  set +e; terraform -chdir=test/migration/step1 plan -detailed-exitcode; code=$$?; set -e; \
 	  if [ "$$code" != "0" ]; then echo "Step1 plan returned $$code (expected 0)"; $(MAKE) graylog-down; exit 1; fi; \
-	  echo "==== Upgrade to Graylog 6.x ===="; \
-	  $(MAKE) GRAYLOG_VERSION=6.0 graylog-up-graylog; \
-	  $(MAKE) graylog-wait; \
+	  for ver in $(GRAYLOG_6_0_VERSION) $(GRAYLOG_6_1_VERSION) $(GRAYLOG_6_2_VERSION) $(GRAYLOG_6_VERSION); do \
+	    echo "==== Upgrade to Graylog $$ver ===="; \
+	    $(MAKE) GRAYLOG_VERSION=$$ver graylog-up-graylog; \
+	    $(MAKE) graylog-wait; \
+	  done; \
 	  terraform -chdir=test/migration/step2 init -upgrade; \
 	  terraform -chdir=test/migration/step2 apply -auto-approve; \
 	  set +e; terraform -chdir=test/migration/step2 plan -detailed-exitcode; code=$$?; set -e; \
 	  if [ "$$code" != "0" ]; then echo "Step2 plan returned $$code (expected 0)"; $(MAKE) graylog-down; exit 1; fi; \
-	  echo "==== Upgrade to Graylog 7.x ===="; \
-	  $(MAKE) GRAYLOG_VERSION=7.0 graylog-up-graylog; \
-	  $(MAKE) graylog-wait; \
+	  for ver in $(GRAYLOG_7_0_VERSION) $(GRAYLOG_7_VERSION); do \
+	    echo "==== Upgrade to Graylog $$ver ===="; \
+	    $(MAKE) GRAYLOG_VERSION=$$ver graylog-up-graylog; \
+	    $(MAKE) graylog-wait; \
+	  done; \
 	  terraform -chdir=test/migration/step3 init -upgrade; \
 	  terraform -chdir=test/migration/step3 apply -auto-approve; \
 	  set +e; terraform -chdir=test/migration/step3 plan -detailed-exitcode; code=$$?; set -e; \
@@ -368,23 +380,24 @@ test-migration:
 	  echo "Migration test passed (5→6→7)"'
 
 # ---------- Sequential Graylog upgrade (manual diagnostics) ----------
-# Starts GL 5.0 -> waits -> upgrades to 6.0 -> waits -> upgrades to 7.0 -> waits
+# Follows Graylog's supported incremental minor-version upgrade path, using
+# the latest stable patch release from every minor line.
 # Uses a single MongoDB version (default MONGO_TAG=7.0) and preserves volumes between upgrades
 graylog-upgrade-seq:
 	@bash -lc 'set -euo pipefail; \
 	  export MONGO_TAG="$${MONGO_TAG:-7.0}"; \
-	  echo "[1/3] Starting Graylog 5.0 with Mongo $$MONGO_TAG"; \
-	  $(MAKE) GRAYLOG_VERSION=5.0 graylog-up >/dev/null; \
-	  { $(MAKE) graylog-wait >/dev/null && echo "Graylog 5.0 is up"; } || { echo "Graylog 5.0 failed to become ready"; $(MAKE) graylog-ps; $(MAKE) graylog-logs; exit 1; }; \
-	  echo "[2/3] Upgrading to Graylog 6.0 (preserving volumes)"; \
-	  $(MAKE) graylog-stop >/dev/null; \
-	  $(MAKE) GRAYLOG_VERSION=6.0 graylog-up >/dev/null; \
-	  { $(MAKE) graylog-wait >/dev/null && echo "Graylog 6.0 is up"; } || { echo "Graylog 6.0 failed to become ready"; $(MAKE) graylog-ps; $(MAKE) graylog-logs; exit 1; }; \
-	  echo "[3/3] Upgrading to Graylog 7.0 (preserving volumes)"; \
-	  $(MAKE) graylog-stop >/dev/null; \
-	  $(MAKE) GRAYLOG_VERSION=7.0 graylog-up >/dev/null; \
-	  { $(MAKE) graylog-wait >/dev/null && echo "Graylog 7.0 is up"; } || { echo "Graylog 7.0 failed to become ready"; $(MAKE) graylog-ps; $(MAKE) graylog-logs; exit 1; }; \
-	  echo "Sequential upgrade succeeded (5.0 → 6.0 → 7.0)"'
+	  echo "[1/7] Starting Graylog $(GRAYLOG_5_VERSION) with Mongo $$MONGO_TAG"; \
+	  $(MAKE) GRAYLOG_VERSION=$(GRAYLOG_5_VERSION) graylog-up >/dev/null; \
+	  { $(MAKE) graylog-wait >/dev/null && echo "Graylog $(GRAYLOG_5_VERSION) is up"; } || { echo "Graylog $(GRAYLOG_5_VERSION) failed to become ready"; $(MAKE) graylog-ps; $(MAKE) graylog-logs; exit 1; }; \
+	  step=2; \
+	  for ver in $(GRAYLOG_6_0_VERSION) $(GRAYLOG_6_1_VERSION) $(GRAYLOG_6_2_VERSION) $(GRAYLOG_6_VERSION) $(GRAYLOG_7_0_VERSION) $(GRAYLOG_7_VERSION); do \
+	    echo "[$$step/7] Upgrading to Graylog $$ver (preserving volumes)"; \
+	    $(MAKE) graylog-stop >/dev/null; \
+	    $(MAKE) GRAYLOG_VERSION=$$ver graylog-up-graylog >/dev/null; \
+	    { $(MAKE) graylog-wait >/dev/null && echo "Graylog $$ver is up"; } || { echo "Graylog $$ver failed to become ready"; $(MAKE) graylog-ps; $(MAKE) graylog-logs; exit 1; }; \
+	    step=$$((step + 1)); \
+	  done; \
+	  echo "Sequential upgrade succeeded ($(GRAYLOG_5_VERSION) → $(GRAYLOG_6_0_VERSION) → $(GRAYLOG_6_1_VERSION) → $(GRAYLOG_6_2_VERSION) → $(GRAYLOG_6_VERSION) → $(GRAYLOG_7_0_VERSION) → $(GRAYLOG_7_VERSION))"'
 
 # Pre-release validation: run all critical tests
 test-pre-release:

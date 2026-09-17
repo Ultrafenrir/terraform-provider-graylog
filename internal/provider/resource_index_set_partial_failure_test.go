@@ -100,6 +100,59 @@ func TestIndexSetResource_Create_PersistsIDOnPostCreateReadFailure(t *testing.T)
 	}
 }
 
+func TestIndexSetResource_Create_WaitsForDeflectorReadiness(t *testing.T) {
+	ctx := context.Background()
+	r := &indexSetResource{}
+
+	var schemaResp resource.SchemaResponse
+	r.Schema(ctx, resource.SchemaRequest{}, &schemaResp)
+	if schemaResp.Diagnostics.HasError() {
+		t.Fatalf("schema error: %v", schemaResp.Diagnostics)
+	}
+
+	deflectorChecks := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		switch {
+		case req.Method == http.MethodPost && req.URL.Path == "/api/system/indices/index_sets":
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "created-id-123"})
+		case req.Method == http.MethodGet && req.URL.Path == "/api/system/indices/index_sets/created-id-123":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id": "created-id-123", "title": "my-index", "index_prefix": "myidx",
+				"shards": 1, "replicas": 0, "index_analyzer": "standard",
+				"field_type_refresh_interval":         5000,
+				"index_optimization_max_num_segments": 1,
+				"index_optimization_disabled":         false,
+			})
+		case req.Method == http.MethodGet && req.URL.Path == "/api/system/deflector/created-id-123":
+			deflectorChecks++
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"is_up": true, "current_target": "myidx_0",
+			})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	r.client = newTestIndexSetClient(t, ts.URL)
+	schemaType := schemaResp.Schema.Type().TerraformType(ctx)
+	planVal := buildFullyNullValue(schemaType, map[string]tftypes.Value{
+		"title":        tftypes.NewValue(tftypes.String, "my-index"),
+		"index_prefix": tftypes.NewValue(tftypes.String, "myidx"),
+	})
+	req := resource.CreateRequest{Plan: tfsdk.Plan{Raw: planVal, Schema: schemaResp.Schema}}
+	resp := resource.CreateResponse{State: tfsdk.State{Schema: schemaResp.Schema}}
+
+	r.Create(ctx, req, &resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected create diagnostics: %v", resp.Diagnostics)
+	}
+	if deflectorChecks != 1 {
+		t.Fatalf("expected one deflector readiness check, got %d", deflectorChecks)
+	}
+}
+
 func TestIndexSetResource_Update_PersistsStateOnPostUpdateReadFailure(t *testing.T) {
 	ctx := context.Background()
 	r := &indexSetResource{}

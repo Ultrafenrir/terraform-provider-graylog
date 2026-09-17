@@ -120,11 +120,28 @@ func (r *userResource) Create(ctx context.Context, req resource.CreateRequest, r
 		return
 	}
 	data.ID = types.StringValue(created.Username)
+	// Resolve every Computed value before any post-create operation can fail:
+	// Terraform requires the entire result object to be known even when Create
+	// returns an error after the remote user has already been persisted.
 	if data.SessionTimeoutMs.IsUnknown() {
 		data.SessionTimeoutMs = types.Int64Value(created.SessionTimeoutMs)
 	}
 	if data.Disabled.IsUnknown() {
 		data.Disabled = types.BoolValue(created.Disabled)
+	}
+	// Graylog's create request does not consistently accept a disabled field.
+	// Apply an explicitly requested disabled state through the dedicated status
+	// endpoint before Create returns, so dependent resources and the first
+	// post-apply refresh observe the requested state immediately.
+	if !data.Disabled.IsNull() && !data.Disabled.IsUnknown() && data.Disabled.ValueBool() {
+		created, err = r.client.WithContext(ctx).SetUserDisabled(created.Username, true)
+		if err != nil {
+			// The user already exists. Persist its identity so a transient status
+			// failure cannot orphan it and cause a duplicate create on the next apply.
+			resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+			resp.Diagnostics.AddError("Error disabling user after create", err.Error())
+			return
+		}
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }

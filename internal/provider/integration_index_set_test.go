@@ -3,6 +3,7 @@
 package provider
 
 import (
+	"context"
 	"encoding/base64"
 	"errors"
 	"os"
@@ -80,6 +81,11 @@ func TestIntegration_IndexSetCRUD(t *testing.T) {
 	}
 	if created.ID == "" {
 		t.Fatalf("expected created index set to have ID")
+	}
+	readyCtx, cancelReady := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancelReady()
+	if err := c.WithContext(readyCtx).WaitForIndexSetReady(created.ID, time.Second); err != nil {
+		t.Fatalf("index set did not become write-ready: %v", err)
 	}
 
 	// Get

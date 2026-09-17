@@ -89,6 +89,22 @@ resource "graylog_index_set" "rotate_by_time" {
     }
   }
 }
+
+# Rotate with Graylog's time/size optimizing strategy (Graylog 5.1+)
+resource "graylog_index_set" "rotate_time_size_optimizing" {
+  title        = "logs-time-size-optimizing"
+  index_prefix = "logs-tso"
+
+  rotation {
+    class = "org.graylog2.indexer.rotation.strategies.TimeBasedSizeOptimizingStrategy"
+    config = {
+      # Keep an index for at least 30 days and at most 40 days while Graylog
+      # optimizes rotation for the target shard size.
+      index_lifetime_min = "P30D"
+      index_lifetime_max = "P40D"
+    }
+  }
+}
 ```
 
 ## Argument Reference
@@ -114,6 +130,7 @@ field is a safe, in-place update — none of them destroy or replace an existing
   - For MessageCountRotationStrategy: `max_docs_per_index`
   - For SizeBasedRotationStrategy: `max_size`
   - For TimeBasedRotationStrategy: `rotation_period`
+  - For TimeBasedSizeOptimizingStrategy (Graylog 5.1+): `index_lifetime_min`, `index_lifetime_max`
 
 ### retention (Block) — Graylog 5+
 - `class` (String, Optional) — Fully qualified retention strategy class, e.g. `org.graylog2.indexer.retention.strategies.DeletionRetentionStrategy`.

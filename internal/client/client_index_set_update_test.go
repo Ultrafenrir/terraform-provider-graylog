@@ -215,3 +215,44 @@ func TestCreateUpdateIndexSet_ConfigTypeInference(t *testing.T) {
 		t.Fatalf("retention defaults not provided: %+v", captured["retention_strategy"])
 	}
 }
+
+func TestCreateIndexSet_TimeBasedSizeOptimizingStrategy(t *testing.T) {
+	var captured map[string]any
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/system/indices/index_sets" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		_ = json.NewDecoder(r.Body).Decode(&captured)
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": "new"})
+	}))
+	defer ts.Close()
+
+	c := newIdxTestClient(ts.URL)
+	_, err := c.CreateIndexSet(&IndexSet{
+		Title:                 "Time/size optimized",
+		IndexPrefix:           "time-size",
+		RotationStrategyClass: "org.graylog2.indexer.rotation.strategies.TimeBasedSizeOptimizingStrategy",
+		RotationStrategyConfig: map[string]any{
+			"index_lifetime_min": "P30D",
+			"index_lifetime_max": "P40D",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateIndexSet returned an error: %v", err)
+	}
+
+	if got := captured["rotation_strategy_class"]; got != "org.graylog2.indexer.rotation.strategies.TimeBasedSizeOptimizingStrategy" {
+		t.Fatalf("unexpected rotation strategy class: %v", got)
+	}
+	config, ok := captured["rotation_strategy"].(map[string]any)
+	if !ok {
+		t.Fatalf("rotation_strategy is not an object: %#v", captured["rotation_strategy"])
+	}
+	if got := config["type"]; got != "org.graylog2.indexer.rotation.strategies.TimeBasedSizeOptimizingStrategyConfig" {
+		t.Fatalf("unexpected strategy config type: %v", got)
+	}
+	if config["index_lifetime_min"] != "P30D" || config["index_lifetime_max"] != "P40D" {
+		t.Fatalf("strategy lifetimes were not preserved: %#v", config)
+	}
+}

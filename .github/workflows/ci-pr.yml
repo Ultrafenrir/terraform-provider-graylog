@@ -23,7 +23,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        graylog: [ '5.0', '6.0', '7.0' ]
+        graylog: [ '5.2.12', '6.3.15', '7.1.9' ]
     env:
       GRAYLOG_VERSION: ${{ matrix.graylog }}
     steps:

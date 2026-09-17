@@ -311,3 +311,44 @@ resource "graylog_index_set" "test" {
 		},
 	})
 }
+
+func TestAccIndexSet_timeBasedSizeOptimizingRotation(t *testing.T) {
+	resource.ParallelTest(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccProviderConfig() + `
+resource "graylog_index_set" "time_size_optimizing" {
+  title        = "acc-time-size-optimizing"
+  index_prefix = "acc-tso"
+  shards       = 1
+  replicas     = 0
+
+  rotation {
+    class = "org.graylog2.indexer.rotation.strategies.TimeBasedSizeOptimizingStrategy"
+    config = {
+      index_lifetime_min = "P30D"
+      index_lifetime_max = "P40D"
+    }
+  }
+
+  retention {
+    class = "org.graylog2.indexer.retention.strategies.DeletionRetentionStrategy"
+    config = {
+      max_number_of_indices = "20"
+    }
+  }
+}
+`,
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttrSet("graylog_index_set.time_size_optimizing", "id"),
+					resource.TestCheckResourceAttr("graylog_index_set.time_size_optimizing", "rotation.class", "org.graylog2.indexer.rotation.strategies.TimeBasedSizeOptimizingStrategy"),
+					resource.TestCheckResourceAttr("graylog_index_set.time_size_optimizing", "rotation.config.index_lifetime_min", "P30D"),
+					resource.TestCheckResourceAttr("graylog_index_set.time_size_optimizing", "rotation.config.index_lifetime_max", "P40D"),
+					resource.TestCheckNoResourceAttr("graylog_index_set.time_size_optimizing", "rotation.config.type"),
+				),
+			},
+		},
+	})
+}

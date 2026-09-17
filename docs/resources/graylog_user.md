@@ -62,7 +62,7 @@ Notes for external users:
 - `roles` (List(String), Optional) — Roles assigned to the user.
 - `timezone` (String, Optional) — Timezone (e.g., `UTC`).
 - `session_timeout_ms` (Number, Optional, Computed) — Session timeout in milliseconds. When unset Graylog applies its default (8 hours) and the value is read back into state. `0` is rejected: Graylog accepts it, but every interactive login then fails with `Session timeout is set to 0 seconds`. Users created by provider versions before this rule have `0` stored server-side; set the attribute explicitly once to repair them.
-- `disabled` (Boolean, Optional, Computed) — Disable the user account. When unset the server's current state is read back into state and left as it is, so omitting it is not a change.
+- `disabled` (Boolean, Optional, Computed) — Disable the user account. An explicit `true` is applied during creation through Graylog's account-status endpoint. When unset the server's current state is read back into state and left as it is, so omitting it is not a change.
 - `password` (String, Optional, Computed, Sensitive) — Password. Required by Graylog on create. Graylog never returns it, so the provider keeps the last applied value in state and calls the password endpoint only when the configured value differs from it. Removing the attribute from the configuration keeps the state value and is not a change; re-adding the same value is a no-op.
 
 ## Attributes Reference

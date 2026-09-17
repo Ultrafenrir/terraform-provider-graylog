@@ -27,11 +27,13 @@ resource "graylog_user" "u" {
   email = "acc@example.com"
   roles = ["Reader"]
   password = "ChangeMe123!"
+  disabled = true
 }
 `, uname),
 				Check: resource.ComposeTestCheckFunc(
 					resource.TestCheckResourceAttrSet("graylog_user.u", "id"),
 					resource.TestCheckResourceAttr("graylog_user.u", "username", uname),
+					resource.TestCheckResourceAttr("graylog_user.u", "disabled", "true"),
 				),
 			},
 			{
