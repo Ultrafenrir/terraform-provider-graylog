@@ -314,11 +314,28 @@ func (r *indexSetResource) Create(ctx context.Context, req resource.CreateReques
 	// on Graylog 7.1 under concurrent creates), so retry briefly on not-found.
 	is, err := r.client.WithContext(ctx).GetIndexSet(created.ID)
 	for attempt := 0; attempt < 5 && errors.Is(err, client.ErrNotFound); attempt++ {
-		time.Sleep(300 * time.Millisecond)
-		is, err = r.client.WithContext(ctx).GetIndexSet(created.ID)
+		select {
+		case <-ctx.Done():
+			err = ctx.Err()
+		case <-time.After(300 * time.Millisecond):
+			is, err = r.client.WithContext(ctx).GetIndexSet(created.ID)
+		}
+		if ctx.Err() != nil {
+			break
+		}
 	}
 	if err != nil {
 		resp.Diagnostics.AddError("Error reading index set after create", err.Error())
+		resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+		return
+	}
+
+	// The index set REST object is persisted before Graylog finishes creating
+	// the initial physical index and attaching the <prefix>_deflector alias. Do
+	// not release dependent resources (notably streams) until that write path is
+	// actually usable.
+	if err := r.client.WithContext(ctx).WaitForIndexSetReady(created.ID, time.Second); err != nil {
+		resp.Diagnostics.AddError("Error waiting for index set initialization", err.Error())
 		resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 		return
 	}

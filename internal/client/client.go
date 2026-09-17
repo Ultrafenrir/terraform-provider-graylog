@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1959,6 +1960,67 @@ func (c *Client) GetIndexSet(id string) (*IndexSet, error) {
 	return &out, nil
 }
 
+// DeflectorStatus describes whether an index set's write alias is ready and
+// which concrete index currently receives writes.
+type DeflectorStatus struct {
+	IsUp          bool   `json:"is_up"`
+	CurrentTarget string `json:"current_target"`
+}
+
+// GetIndexSetDeflectorStatus returns the write-alias status for an index set.
+// The index set object can become visible before Graylog has finished creating
+// its initial index and pointing the deflector alias at it, so GetIndexSet alone
+// is not sufficient as a post-create readiness check.
+func (c *Client) GetIndexSetDeflectorStatus(id string) (*DeflectorStatus, error) {
+	path := fmt.Sprintf("/api/system/deflector/%s", id)
+	resp, err := c.doRequest("GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var out DeflectorStatus
+	if err := json.Unmarshal(resp, &out); err != nil {
+		return nil, fmt.Errorf("failed to decode deflector status for index set %s: %w", id, err)
+	}
+	return &out, nil
+}
+
+// WaitForIndexSetReady waits until Graylog has created the initial physical
+// index and attached the index set's deflector alias to it. The client's context
+// controls cancellation and the overall timeout.
+func (c *Client) WaitForIndexSetReady(id string, interval time.Duration) error {
+	if interval <= 0 {
+		interval = time.Second
+	}
+
+	ctx := c.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	for {
+		status, err := c.GetIndexSetDeflectorStatus(id)
+		if err == nil && status.IsUp && strings.TrimSpace(status.CurrentTarget) != "" {
+			return nil
+		}
+		// A newly-created index set can briefly be absent from the deflector
+		// endpoint. Other API errors are actionable and should not be hidden by
+		// polling until the full create timeout expires.
+		if err != nil && !errors.Is(err, ErrNotFound) {
+			return fmt.Errorf("failed to get deflector status for index set %s: %w", id, err)
+		}
+
+		timer := time.NewTimer(interval)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return fmt.Errorf("timed out waiting for index set %s deflector to become ready: %w", id, ctx.Err())
+		case <-timer.C:
+		}
+	}
+}
+
 func (c *Client) UpdateIndexSet(id string, is *IndexSet) (*IndexSet, error) {
 	// Graylog API для index sets требует PUT с полным телом объекта
 	// Сначала получаем текущее состояние, затем обновляем нужные поля
@@ -3012,6 +3074,71 @@ func (c *Client) GetUser(username string) (*User, error) {
 	return &out, nil
 }
 
+// SetUserDisabled changes only the account status and returns the refreshed
+// user. The status endpoint requires the user's ObjectId in every supported
+// Graylog version. In particular, Graylog 5 accepts a disabled property in a
+// regular profile update but ignores it, leaving the account enabled.
+func (c *Client) SetUserDisabled(username string, disabled bool) (*User, error) {
+	current, err := c.GetUser(username)
+	if err != nil {
+		return nil, err
+	}
+
+	id, err := c.resolveUserObjectID(username, current)
+	if err != nil {
+		return nil, err
+	}
+	if err := c.setUserStatusByID(id, disabled); err != nil {
+		return nil, err
+	}
+	return c.GetUser(username)
+}
+
+func (c *Client) setUserStatusByID(id string, disabled bool) error {
+	status := "enabled"
+	verb := "enable"
+	if disabled {
+		status = "disabled"
+		verb = "disable"
+	}
+
+	_, statusErr := c.doRequest("PUT", fmt.Sprintf("/api/users/%s/status/%s", id, status), map[string]any{})
+	if statusErr == nil {
+		return nil
+	}
+	if _, fallbackErr := c.doRequest("POST", fmt.Sprintf("/api/users/%s/%s", id, verb), nil); fallbackErr != nil {
+		return fmt.Errorf("failed to set user %s status via primary endpoint (%v) and fallback endpoint: %w", id, statusErr, fallbackErr)
+	}
+	return nil
+}
+
+func isUserObjectID(id string) bool {
+	if len(id) != 24 {
+		return false
+	}
+	_, err := hex.DecodeString(id)
+	return err == nil
+}
+
+// resolveUserObjectID handles a Graylog API inconsistency: GET /users/{name}
+// can omit the Mongo ObjectId even though status/password/profile endpoints in
+// Graylog 6/7 require it. The users collection includes the missing id.
+func (c *Client) resolveUserObjectID(username string, current *User) (string, error) {
+	if current != nil && isUserObjectID(current.ID) {
+		return current.ID, nil
+	}
+	users, err := c.ListUsers()
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve ObjectId for user %q: %w", username, err)
+	}
+	for _, user := range users {
+		if user.Username == username && isUserObjectID(user.ID) {
+			return user.ID, nil
+		}
+	}
+	return "", fmt.Errorf("failed to resolve ObjectId for user %q", username)
+}
+
 // UpdateUser updates the user's profile, roles and status. u.Password is
 // ignored; use SetUserPassword.
 func (c *Client) UpdateUser(username string, u *User) (*User, error) {
@@ -3023,10 +3150,13 @@ func (c *Client) UpdateUser(username string, u *User) (*User, error) {
 	// ignored), and the enabled/disabled state is changed only through the
 	// dedicated status endpoint (a "disabled" body property is ignored).
 	if c.APIVersion == APIV6 || c.APIVersion == APIV7 {
-		current, _ := c.GetUser(username)
-		id := username
-		if current != nil && current.ID != "" {
-			id = current.ID
+		current, getErr := c.GetUser(username)
+		if getErr != nil {
+			return nil, getErr
+		}
+		id, err := c.resolveUserObjectID(username, current)
+		if err != nil {
+			return nil, err
 		}
 		payload := map[string]any{}
 		if u.FullName != "" {
@@ -3056,17 +3186,8 @@ func (c *Client) UpdateUser(username string, u *User) (*User, error) {
 				return nil, err
 			}
 		}
-		status := "enabled"
-		if u.Disabled {
-			status = "disabled"
-		}
-		if _, err := c.doRequest("PUT", fmt.Sprintf("/api/users/%s/status/%s", id, status), map[string]any{}); err != nil {
-			// Older builds expose POST /users/{id}/disable|enable instead
-			verb := "enable"
-			if u.Disabled {
-				verb = "disable"
-			}
-			_, _ = c.doRequest("POST", fmt.Sprintf("/api/users/%s/%s", id, verb), nil)
+		if err := c.setUserStatusByID(id, u.Disabled); err != nil {
+			return nil, err
 		}
 		// Вернуть актуальное состояние
 		return c.GetUser(username)
@@ -3090,8 +3211,13 @@ func (c *Client) SetUserPassword(username, password string) error {
 	id := username
 	// Graylog 6/7 want the user's ObjectId in the path (see UpdateUser).
 	if c.APIVersion == APIV6 || c.APIVersion == APIV7 {
-		if current, err := c.GetUser(username); err == nil && current.ID != "" {
-			id = current.ID
+		current, err := c.GetUser(username)
+		if err != nil {
+			return err
+		}
+		id, err = c.resolveUserObjectID(username, current)
+		if err != nil {
+			return err
 		}
 	}
 	_, err := c.doRequest("PUT", fmt.Sprintf("/api/users/%s/password", id), map[string]string{"password": password})

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `graylog_index_set`: added explicit support and documentation for Graylog 5.1+'s `TimeBasedSizeOptimizingStrategy` with `index_lifetime_min` and `index_lifetime_max` configuration. Graylog 5.0 does not register this strategy, so its compatibility acceptance test is skipped on that image.
+- `graylog_index_set`: creation now waits until the index set deflector is up and points to a concrete write index, preventing dependent streams from being created while the index set is only partially initialized.
+- `graylog_user`: an explicit `disabled = true` is now applied through Graylog's status endpoint during creation, eliminating the one-time `false -> true` diff on the next apply.
+
 ### Added
 - **`graylog_role` data source** and a **`role_id` attribute on the `graylog_role` resource**: both expose the role's Mongo id, which several APIs require and which nothing else in the provider could produce — `graylog_role.id` is the role *name*, and the name-keyed `/roles/{name}` endpoint does not return an id at all.
 

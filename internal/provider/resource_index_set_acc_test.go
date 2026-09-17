@@ -3,9 +3,12 @@
 package provider
 
 import (
+	"encoding/base64"
+	"os"
 	"strconv"
 	"testing"
 
+	"github.com/Ultrafenrir/terraform-provider-graylog/internal/client"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/plancheck"
 )
@@ -306,6 +309,63 @@ resource "graylog_index_set" "test" {
 					// Still should not have extra fields
 					resource.TestCheckNoResourceAttr("graylog_index_set.test", "rotation.config.type"),
 					resource.TestCheckNoResourceAttr("graylog_index_set.test", "retention.config.type"),
+				),
+			},
+		},
+	})
+}
+
+func TestAccIndexSet_timeBasedSizeOptimizingRotation(t *testing.T) {
+	// The strategy was introduced in Graylog 5.1. The compatibility suite's
+	// APIV5 image is 5.0, where neither the strategy nor its config subtype is
+	// registered and the API correctly rejects it.
+	{
+		url := os.Getenv("URL")
+		token := os.Getenv("TOKEN")
+		if url == "" || token == "" {
+			t.Skip("acceptance env is not configured: set URL and TOKEN env vars")
+		}
+		if _, err := base64.StdEncoding.DecodeString(token); err != nil {
+			token = base64.StdEncoding.EncodeToString([]byte(token))
+		}
+		if client.New(url, token).APIVersion == client.APIV5 {
+			t.Skip("TimeBasedSizeOptimizingStrategy requires Graylog 5.1 or newer; compatibility image is Graylog 5.0")
+		}
+	}
+	resource.ParallelTest(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccProviderConfig() + `
+resource "graylog_index_set" "time_size_optimizing" {
+  title        = "acc-time-size-optimizing"
+  index_prefix = "acc-tso"
+  shards       = 1
+  replicas     = 0
+
+  rotation {
+    class = "org.graylog2.indexer.rotation.strategies.TimeBasedSizeOptimizingStrategy"
+    config = {
+      index_lifetime_min = "P30D"
+      index_lifetime_max = "P40D"
+    }
+  }
+
+  retention {
+    class = "org.graylog2.indexer.retention.strategies.DeletionRetentionStrategy"
+    config = {
+      max_number_of_indices = "20"
+    }
+  }
+}
+`,
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttrSet("graylog_index_set.time_size_optimizing", "id"),
+					resource.TestCheckResourceAttr("graylog_index_set.time_size_optimizing", "rotation.class", "org.graylog2.indexer.rotation.strategies.TimeBasedSizeOptimizingStrategy"),
+					resource.TestCheckResourceAttr("graylog_index_set.time_size_optimizing", "rotation.config.index_lifetime_min", "P30D"),
+					resource.TestCheckResourceAttr("graylog_index_set.time_size_optimizing", "rotation.config.index_lifetime_max", "P40D"),
+					resource.TestCheckNoResourceAttr("graylog_index_set.time_size_optimizing", "rotation.config.type"),
 				),
 			},
 		},
