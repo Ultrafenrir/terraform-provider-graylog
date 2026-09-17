@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- `graylog_index_set`: added explicit support and documentation for Graylog 5.1+'s `TimeBasedSizeOptimizingStrategy` with `index_lifetime_min` and `index_lifetime_max` configuration. Graylog 5.0 does not register this strategy, so its compatibility acceptance test is skipped on that image.
+- `graylog_index_set`: added explicit support and documentation for Graylog 5.1+'s `TimeBasedSizeOptimizingStrategy` with `index_lifetime_min` and `index_lifetime_max` configuration. The compatibility matrix now runs the strategy test without skips on the latest stable patch releases for each supported major line: Graylog 5.2.12, 6.3.15, and 7.1.9.
 - `graylog_index_set`: creation now waits until the index set deflector is up and points to a concrete write index, preventing dependent streams from being created while the index set is only partially initialized.
 - `graylog_user`: an explicit `disabled = true` is now applied through Graylog's status endpoint during creation, eliminating the one-time `false -> true` diff on the next apply.
 

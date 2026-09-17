@@ -3,12 +3,9 @@
 package provider
 
 import (
-	"encoding/base64"
-	"os"
 	"strconv"
 	"testing"
 
-	"github.com/Ultrafenrir/terraform-provider-graylog/internal/client"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/plancheck"
 )
@@ -316,22 +313,6 @@ resource "graylog_index_set" "test" {
 }
 
 func TestAccIndexSet_timeBasedSizeOptimizingRotation(t *testing.T) {
-	// The strategy was introduced in Graylog 5.1. The compatibility suite's
-	// APIV5 image is 5.0, where neither the strategy nor its config subtype is
-	// registered and the API correctly rejects it.
-	{
-		url := os.Getenv("URL")
-		token := os.Getenv("TOKEN")
-		if url == "" || token == "" {
-			t.Skip("acceptance env is not configured: set URL and TOKEN env vars")
-		}
-		if _, err := base64.StdEncoding.DecodeString(token); err != nil {
-			token = base64.StdEncoding.EncodeToString([]byte(token))
-		}
-		if client.New(url, token).APIVersion == client.APIV5 {
-			t.Skip("TimeBasedSizeOptimizingStrategy requires Graylog 5.1 or newer; compatibility image is Graylog 5.0")
-		}
-	}
 	resource.ParallelTest(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
