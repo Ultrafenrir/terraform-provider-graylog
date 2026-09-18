@@ -397,13 +397,20 @@ func (c *Client) SetLogger(l Logger) {
 }
 
 func (c *Client) doRequest(method, path string, body any) ([]byte, error) {
+	return c.doRequestWithMaxRetries(method, path, body, c.MaxRetries)
+}
+
+// doRequestWithMaxRetries executes a request with an explicit retry budget.
+// It is used for non-idempotent operations that must not inherit the client's
+// normal retry policy.
+func (c *Client) doRequestWithMaxRetries(method, path string, body any, maxRetries int) ([]byte, error) {
 	var bodyBytes []byte
 	if body != nil {
 		bodyBytes, _ = json.Marshal(body)
 	}
 
 	var lastErr error
-	for attempt := 0; attempt <= c.MaxRetries; attempt++ {
+	for attempt := 0; attempt <= maxRetries; attempt++ {
 		// Prepare request body for each attempt
 		var buf io.Reader
 		if bodyBytes != nil {
@@ -433,7 +440,7 @@ func (c *Client) doRequest(method, path string, body any) ([]byte, error) {
 				"method":   method,
 				"path":     path,
 				"attempt":  attempt + 1,
-				"maxRetry": c.MaxRetries + 1,
+				"maxRetry": maxRetries + 1,
 			},
 		)
 
@@ -441,7 +448,7 @@ func (c *Client) doRequest(method, path string, body any) ([]byte, error) {
 		if err != nil {
 			// Network error - retry if attempts remain
 			lastErr = err
-			if attempt < c.MaxRetries {
+			if attempt < maxRetries {
 				waitTime := time.Duration(math.Pow(2, float64(attempt))) * c.RetryWait
 				c.logger.Warn(ctx, "http_request_error",
 					Fields{
@@ -454,7 +461,7 @@ func (c *Client) doRequest(method, path string, body any) ([]byte, error) {
 				time.Sleep(waitTime)
 				continue
 			}
-			return nil, fmt.Errorf("request failed after %d attempts: %w", c.MaxRetries+1, err)
+			return nil, fmt.Errorf("request failed after %d attempts: %w", maxRetries+1, err)
 		}
 		defer resp.Body.Close()
 
@@ -497,7 +504,7 @@ func (c *Client) doRequest(method, path string, body any) ([]byte, error) {
 			// Пытаемся распарсить структурированную ошибку Graylog
 			gerr := ParseGraylogError(resp.StatusCode, b)
 
-			if c.shouldRetry(resp.StatusCode) && attempt < c.MaxRetries {
+			if c.shouldRetry(resp.StatusCode) && attempt < maxRetries {
 				lastErr = gerr
 				waitTime := time.Duration(math.Pow(2, float64(attempt))) * c.RetryWait
 				c.logger.Warn(ctx, "http_response_retry",
@@ -537,7 +544,7 @@ func (c *Client) doRequest(method, path string, body any) ([]byte, error) {
 		return b, nil
 	}
 
-	return nil, fmt.Errorf("request failed after %d attempts: %w", c.MaxRetries+1, lastErr)
+	return nil, fmt.Errorf("request failed after %d attempts: %w", maxRetries+1, lastErr)
 }
 
 // osDoRequest performs an HTTP request against OpenSearch base URL (OSBaseURL).
@@ -1979,9 +1986,7 @@ func (c *Client) InitializeIndexSet(id string) error {
 	path := fmt.Sprintf("/api/cluster/deflector/%s/cycle", id)
 	// Cycling is not idempotent: retrying a timed-out request can create several
 	// empty indices even though the first request is still completing in Graylog.
-	withoutRetries := *c
-	withoutRetries.MaxRetries = 0
-	if _, err := withoutRetries.doRequest("POST", path, nil); err != nil {
+	if _, err := c.doRequestWithMaxRetries("POST", path, nil, 0); err != nil {
 		return fmt.Errorf("failed to initialize index set %s: %w", id, err)
 	}
 	return nil
