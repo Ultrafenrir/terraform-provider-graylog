@@ -85,6 +85,87 @@ resource "graylog_index_set" "test" {
 	})
 }
 
+// TestAccIndexSet_parallelCreation reproduces the common module pattern where
+// one graylog_index_set resource uses for_each and Terraform creates all index
+// sets concurrently. A single-resource test cannot expose coordination bugs in
+// deflector initialization.
+func TestAccIndexSet_parallelCreation(t *testing.T) {
+	resource.ParallelTest(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccProviderConfig() + testAccParallelIndexSetsConfig(),
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttrSet("graylog_index_set.payments", "id"),
+					resource.TestCheckResourceAttrWith("graylog_index_set.payments", "id", testAccCheckIndexSetWriteReady),
+					resource.TestCheckResourceAttrSet("graylog_stream.payments", "id"),
+					testAccCheckLiveStreamIndexSet("graylog_stream.payments", "graylog_index_set.payments"),
+					resource.TestCheckResourceAttrSet("graylog_index_set.orders", "id"),
+					resource.TestCheckResourceAttrWith("graylog_index_set.orders", "id", testAccCheckIndexSetWriteReady),
+					resource.TestCheckResourceAttrSet("graylog_stream.orders", "id"),
+					testAccCheckLiveStreamIndexSet("graylog_stream.orders", "graylog_index_set.orders"),
+					resource.TestCheckResourceAttrSet("graylog_index_set.refunds", "id"),
+					resource.TestCheckResourceAttrWith("graylog_index_set.refunds", "id", testAccCheckIndexSetWriteReady),
+					resource.TestCheckResourceAttrSet("graylog_stream.refunds", "id"),
+					testAccCheckLiveStreamIndexSet("graylog_stream.refunds", "graylog_index_set.refunds"),
+					resource.TestCheckResourceAttrSet("graylog_index_set.invoices", "id"),
+					resource.TestCheckResourceAttrWith("graylog_index_set.invoices", "id", testAccCheckIndexSetWriteReady),
+					resource.TestCheckResourceAttrSet("graylog_stream.invoices", "id"),
+					testAccCheckLiveStreamIndexSet("graylog_stream.invoices", "graylog_index_set.invoices"),
+					resource.TestCheckResourceAttrSet("graylog_index_set.settlements", "id"),
+					resource.TestCheckResourceAttrWith("graylog_index_set.settlements", "id", testAccCheckIndexSetWriteReady),
+					resource.TestCheckResourceAttrSet("graylog_stream.settlements", "id"),
+					testAccCheckLiveStreamIndexSet("graylog_stream.settlements", "graylog_index_set.settlements"),
+					resource.TestCheckResourceAttrSet("graylog_index_set.transfers", "id"),
+					resource.TestCheckResourceAttrWith("graylog_index_set.transfers", "id", testAccCheckIndexSetWriteReady),
+					resource.TestCheckResourceAttrSet("graylog_stream.transfers", "id"),
+					testAccCheckLiveStreamIndexSet("graylog_stream.transfers", "graylog_index_set.transfers"),
+					resource.TestCheckResourceAttrSet("graylog_index_set.balances", "id"),
+					resource.TestCheckResourceAttrWith("graylog_index_set.balances", "id", testAccCheckIndexSetWriteReady),
+					resource.TestCheckResourceAttrSet("graylog_stream.balances", "id"),
+					testAccCheckLiveStreamIndexSet("graylog_stream.balances", "graylog_index_set.balances"),
+					resource.TestCheckResourceAttrSet("graylog_index_set.ledger", "id"),
+					resource.TestCheckResourceAttrWith("graylog_index_set.ledger", "id", testAccCheckIndexSetWriteReady),
+					resource.TestCheckResourceAttrSet("graylog_stream.ledger", "id"),
+					testAccCheckLiveStreamIndexSet("graylog_stream.ledger", "graylog_index_set.ledger"),
+				),
+			},
+		},
+	})
+}
+
+func testAccParallelIndexSetsConfig() string {
+	config := ""
+	for _, name := range []string{"payments", "orders", "refunds", "invoices", "settlements", "transfers", "balances", "ledger"} {
+		config += fmt.Sprintf(`
+resource "graylog_index_set" %q {
+  title        = "acc-parallel-%s"
+  index_prefix = "acc-parallel-%s"
+  shards       = 1
+  replicas     = 0
+
+  timeouts = {
+    create = "2m"
+  }
+}
+
+resource "graylog_stream" %q {
+  title        = "acc-parallel-%s"
+  description  = "stream paired with acc-parallel-%s"
+  index_set_id = graylog_index_set.%s.id
+
+  rule {
+    field = "source"
+    type  = 1
+    value = "acc-%s"
+  }
+}
+`, name, name, name, name, name, name, name, name)
+	}
+	return config
+}
+
 func TestAccIndexSet_update(t *testing.T) {
 	resource.ParallelTest(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },

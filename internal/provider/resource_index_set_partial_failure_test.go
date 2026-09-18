@@ -126,7 +126,7 @@ func TestIndexSetResource_Create_WaitsForDeflectorReadiness(t *testing.T) {
 			})
 		case req.Method == http.MethodGet && req.URL.Path == "/api/system/deflector/created-id-123":
 			deflectorChecks++
-			if deflectorCycles == 0 {
+			if deflectorChecks < 3 {
 				_ = json.NewEncoder(w).Encode(map[string]any{
 					"is_up": false, "current_target": nil,
 				})
@@ -137,7 +137,7 @@ func TestIndexSetResource_Create_WaitsForDeflectorReadiness(t *testing.T) {
 			})
 		case req.Method == http.MethodPost && req.URL.Path == "/api/cluster/deflector/created-id-123/cycle":
 			deflectorCycles++
-			w.WriteHeader(http.StatusNoContent)
+			w.WriteHeader(http.StatusMethodNotAllowed)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -158,11 +158,11 @@ func TestIndexSetResource_Create_WaitsForDeflectorReadiness(t *testing.T) {
 	if resp.Diagnostics.HasError() {
 		t.Fatalf("unexpected create diagnostics: %v", resp.Diagnostics)
 	}
-	if deflectorChecks != 2 {
-		t.Fatalf("expected two deflector readiness checks, got %d", deflectorChecks)
+	if deflectorChecks != 3 {
+		t.Fatalf("expected three deflector readiness checks, got %d", deflectorChecks)
 	}
-	if deflectorCycles != 1 {
-		t.Fatalf("expected one deflector initialization request, got %d", deflectorCycles)
+	if deflectorCycles != 0 {
+		t.Fatalf("expected no manual deflector cycles, got %d", deflectorCycles)
 	}
 }
 

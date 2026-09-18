@@ -3,32 +3,33 @@ package client
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 )
 
-func TestEnsureIndexSetReady_InitializesAndWaitsForDeflectorTarget(t *testing.T) {
+func TestEnsureIndexSetReady_WaitsForBackgroundInitializationWithoutCycling(t *testing.T) {
 	statusRequests := 0
 	cycleRequests := 0
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPost && r.URL.Path == "/api/cluster/deflector/idx-1/cycle" {
+		if r.Method != http.MethodGet {
 			cycleRequests++
-			w.WriteHeader(http.StatusNoContent)
+			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
-		if r.Method != http.MethodGet || r.URL.Path != "/api/system/deflector/idx-1" {
+		if r.URL.Path != "/api/system/deflector/idx-1" {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
 		statusRequests++
-		switch statusRequests {
-		case 1:
+		if statusRequests < 3 {
 			_, _ = w.Write([]byte(`{"is_up":false,"current_target":""}`))
-		default:
+		} else {
 			_, _ = w.Write([]byte(`{"is_up":true,"current_target":"logs_0"}`))
 		}
 	}))
@@ -38,11 +39,11 @@ func TestEnsureIndexSetReady_InitializesAndWaitsForDeflectorTarget(t *testing.T)
 	if err := c.EnsureIndexSetReady("idx-1", time.Millisecond); err != nil {
 		t.Fatalf("EnsureIndexSetReady returned an error: %v", err)
 	}
-	if statusRequests != 2 {
-		t.Fatalf("expected 2 readiness checks, got %d", statusRequests)
+	if statusRequests != 3 {
+		t.Fatalf("expected 3 readiness checks, got %d", statusRequests)
 	}
-	if cycleRequests != 1 {
-		t.Fatalf("expected one initialization request, got %d", cycleRequests)
+	if cycleRequests != 0 {
+		t.Fatalf("expected no manual cycle requests, got %d", cycleRequests)
 	}
 }
 
@@ -65,67 +66,57 @@ func TestEnsureIndexSetReady_DoesNotCycleReadyIndexSet(t *testing.T) {
 	}
 }
 
-func TestEnsureIndexSetReady_PollsAfterCycleResponseTimeoutWithoutRetrying(t *testing.T) {
-	var ready atomic.Bool
-	var cycleRequests atomic.Int32
+func TestEnsureIndexSetReady_ConcurrentWaitersOnlyObserveGraylog(t *testing.T) {
+	var requestCounts sync.Map
+	var mutationRequests atomic.Int32
+
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.Method == http.MethodGet:
-			if ready.Load() {
-				_, _ = w.Write([]byte(`{"is_up":true,"current_target":"logs_0"}`))
-			} else {
-				_, _ = w.Write([]byte(`{"is_up":false,"current_target":""}`))
-			}
-		case r.Method == http.MethodPost:
-			cycleRequests.Add(1)
-			<-r.Context().Done()
-			ready.Store(true)
-		default:
-			w.WriteHeader(http.StatusNotFound)
+		if r.Method != http.MethodGet {
+			mutationRequests.Add(1)
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
 		}
+		if !strings.HasPrefix(r.URL.Path, "/api/system/deflector/") {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		id := strings.TrimPrefix(r.URL.Path, "/api/system/deflector/")
+		counterValue, _ := requestCounts.LoadOrStore(id, &atomic.Int32{})
+		if counterValue.(*atomic.Int32).Add(1) < 3 {
+			_, _ = w.Write([]byte(`{"is_up":false,"current_target":""}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"is_up":true,"current_target":"logs_0"}`))
 	}))
 	defer ts.Close()
 
 	c := newIdxTestClient(ts.URL).WithContext(context.Background())
-	c.MaxRetries = 3
-	c.HTTP.Timeout = 10 * time.Millisecond
-	if err := c.EnsureIndexSetReady("idx-1", time.Millisecond); err != nil {
-		t.Fatalf("EnsureIndexSetReady returned an error after cycle response timeout: %v", err)
+	const count = 8
+	errors := make(chan error, count)
+	var workers sync.WaitGroup
+	workers.Add(count)
+	for i := 0; i < count; i++ {
+		go func(id string) {
+			defer workers.Done()
+			errors <- c.EnsureIndexSetReady(id, time.Millisecond)
+		}(fmt.Sprintf("idx-%d", i))
 	}
-	if got := cycleRequests.Load(); got != 1 {
-		t.Fatalf("expected exactly one non-idempotent initialization request, got %d", got)
-	}
-}
-
-func TestEnsureIndexSetReady_PollsAfterClusterProxyTimeoutWithoutRetrying(t *testing.T) {
-	statusRequests := 0
-	cycleRequests := 0
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.Method == http.MethodGet:
-			statusRequests++
-			if statusRequests > 1 {
-				_, _ = w.Write([]byte(`{"is_up":true,"current_target":"logs_0"}`))
-			} else {
-				_, _ = w.Write([]byte(`{"is_up":false,"current_target":""}`))
-			}
-		case r.Method == http.MethodPost:
-			cycleRequests++
-			w.WriteHeader(http.StatusInternalServerError)
-			_, _ = w.Write([]byte(`{"type":"ApiError","message":"timeout"}`))
-		default:
-			w.WriteHeader(http.StatusNotFound)
+	workers.Wait()
+	close(errors)
+	for err := range errors {
+		if err != nil {
+			t.Fatalf("EnsureIndexSetReady returned an error: %v", err)
 		}
-	}))
-	defer ts.Close()
-
-	c := newIdxTestClient(ts.URL).WithContext(context.Background())
-	c.MaxRetries = 3
-	if err := c.EnsureIndexSetReady("idx-1", time.Millisecond); err != nil {
-		t.Fatalf("EnsureIndexSetReady returned an error after proxy timeout: %v", err)
 	}
-	if cycleRequests != 1 {
-		t.Fatalf("expected exactly one non-idempotent initialization request, got %d", cycleRequests)
+	if got := mutationRequests.Load(); got != 0 {
+		t.Fatalf("expected readiness waiters to issue no mutating requests, got %d", got)
+	}
+	for i := 0; i < count; i++ {
+		id := fmt.Sprintf("idx-%d", i)
+		counterValue, ok := requestCounts.Load(id)
+		if !ok || counterValue.(*atomic.Int32).Load() < 3 {
+			t.Fatalf("expected index set %s to be polled until ready", id)
+		}
 	}
 }
 

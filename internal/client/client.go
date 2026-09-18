@@ -1975,44 +1975,11 @@ func (c *Client) GetIndexSetDeflectorStatus(id string) (*DeflectorStatus, error)
 	return &out, nil
 }
 
-// InitializeIndexSet synchronously creates the next physical index and points
-// the index set's deflector alias at it. Graylog's create-index-set endpoint
-// only persists configuration; without this call initialization is left to a
-// periodic background job and can be delayed indefinitely when that job is not
-// running on the node handling the request.
-func (c *Client) InitializeIndexSet(id string) error {
-	// Use the cluster proxy so this also works when the configured API endpoint
-	// resolves to a non-leader Graylog node.
-	path := fmt.Sprintf("/api/cluster/deflector/%s/cycle", id)
-	// Cycling is not idempotent: retrying a timed-out request can create several
-	// empty indices even though the first request is still completing in Graylog.
-	if _, err := c.doRequestWithMaxRetries("POST", path, nil, 0); err != nil {
-		return fmt.Errorf("failed to initialize index set %s: %w", id, err)
-	}
-	return nil
-}
-
-// EnsureIndexSetReady initializes an index set when necessary and waits until
-// its deflector alias has a concrete write target.
+// EnsureIndexSetReady waits until Graylog's own IndexRotationThread has created
+// the initial physical index and attached the deflector alias. It deliberately
+// does not trigger a manual cycle: doing so can race the background initializer
+// and schedule duplicate index-allocation work for the same index set.
 func (c *Client) EnsureIndexSetReady(id string, interval time.Duration) error {
-	status, err := c.GetIndexSetDeflectorStatus(id)
-	if err == nil && status.IsUp && strings.TrimSpace(status.CurrentTarget) != "" {
-		return nil
-	}
-	if err != nil && !errors.Is(err, ErrNotFound) {
-		return fmt.Errorf("failed to get deflector status for index set %s: %w", id, err)
-	}
-	if err := c.InitializeIndexSet(id); err != nil {
-		// Index creation can outlive the HTTP client's response timeout. Graylog
-		// continues the non-idempotent cycle server-side. Its cluster proxy reports
-		// that case as API error 500 "timeout". Never retry it; keep observing the
-		// alias instead. Other errors are definitive and actionable.
-		var graylogErr *GraylogError
-		proxyTimedOut := errors.As(err, &graylogErr) && graylogErr.Status == http.StatusInternalServerError && strings.EqualFold(strings.TrimSpace(graylogErr.Message), "timeout")
-		if !errors.Is(err, context.DeadlineExceeded) && !proxyTimedOut {
-			return err
-		}
-	}
 	return c.WaitForIndexSetReady(id, interval)
 }
 
