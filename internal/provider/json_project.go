@@ -15,10 +15,24 @@ import (
 // difference on every plan, so only the keys actually under management take
 // part in drift detection.
 //
-// Arrays are compared whole rather than element-wise: an element added or
-// removed server-side is a real change, and index-aligned masking would hide
-// it.
+// Array membership is compared whole: an element added or removed server-side
+// is a real change. Arrays of equal length are projected element-wise so
+// defaults added inside object elements are ignored without hiding membership
+// drift.
 func projectJSON(server, mask any) any {
+	maskArray, maskIsArray := mask.([]any)
+	serverArray, serverIsArray := server.([]any)
+	if maskIsArray && serverIsArray {
+		if len(maskArray) != len(serverArray) {
+			return server
+		}
+		out := make([]any, len(serverArray))
+		for i := range serverArray {
+			out[i] = projectJSON(serverArray[i], maskArray[i])
+		}
+		return out
+	}
+
 	maskObj, ok := mask.(map[string]any)
 	if !ok {
 		return server

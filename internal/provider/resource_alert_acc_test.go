@@ -16,7 +16,6 @@ func TestAccAlert_basic(t *testing.T) {
 				// Для совместимости GL 5/6/7 не меняем default index set и не создаём
 				// кастомный index set для stream. Создаём stream без index_set_id,
 				// чтобы он использовал системный writable (default) index set.
-				ExpectNonEmptyPlan: true,
 				Config: testAccProviderConfig() + `
 data "graylog_index_set_default" "this" {}
 
@@ -58,6 +57,7 @@ resource "graylog_alert" "a" {
 `,
 				Check: resource.ComposeTestCheckFunc(
 					resource.TestCheckResourceAttrSet("graylog_alert.a", "id"),
+					testAccCheckLiveResourceExists("graylog_alert.a", "event_definition"),
 					resource.TestCheckResourceAttr("graylog_alert.a", "title", "acc-alert"),
 				),
 			},

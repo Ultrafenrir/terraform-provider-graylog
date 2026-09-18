@@ -32,6 +32,7 @@ resource "graylog_user" "u" {
 `, uname),
 				Check: resource.ComposeTestCheckFunc(
 					resource.TestCheckResourceAttrSet("graylog_user.u", "id"),
+					testAccCheckLiveResourceExists("graylog_user.u", "user"),
 					resource.TestCheckResourceAttr("graylog_user.u", "username", uname),
 					resource.TestCheckResourceAttr("graylog_user.u", "disabled", "true"),
 				),

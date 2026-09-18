@@ -27,6 +27,7 @@ resource "graylog_input" "syslog_udp" {
 `,
 				Check: resource.ComposeTestCheckFunc(
 					resource.TestCheckResourceAttrSet("graylog_input.syslog_udp", "id"),
+					testAccCheckLiveResourceExists("graylog_input.syslog_udp", "input"),
 					resource.TestCheckResourceAttr("graylog_input.syslog_udp", "title", "acc-syslog-udp"),
 				),
 			},
@@ -76,6 +77,7 @@ resource "graylog_input" "kafka_raw" {
 `,
 				Check: resource.ComposeTestCheckFunc(
 					resource.TestCheckResourceAttrSet("graylog_input.kafka_raw", "id"),
+					testAccCheckLiveResourceExists("graylog_input.kafka_raw", "input"),
 					resource.TestCheckResourceAttr("graylog_input.kafka_raw", "title", "acc-kafka-raw"),
 				),
 			},

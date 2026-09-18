@@ -70,7 +70,6 @@ func TestIntegration_IndexSetCRUD(t *testing.T) {
 		Default:                  false,
 	}
 	if c.APIVersion == client.APIV7 {
-		idx.Replicas = 1
 		idx.IsWritable = true
 		idx.IndexOptimizationDisabled = true
 	}
@@ -84,7 +83,7 @@ func TestIntegration_IndexSetCRUD(t *testing.T) {
 	}
 	readyCtx, cancelReady := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancelReady()
-	if err := c.WithContext(readyCtx).WaitForIndexSetReady(created.ID, time.Second); err != nil {
+	if err := c.WithContext(readyCtx).EnsureIndexSetReady(created.ID, time.Second); err != nil {
 		t.Fatalf("index set did not become write-ready: %v", err)
 	}
 

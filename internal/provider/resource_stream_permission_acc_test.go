@@ -33,7 +33,6 @@ func TestAccStreamPermission_basic(t *testing.T) {
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				ExpectNonEmptyPlan: true,
 				Config: testAccProviderConfig() + `
 data "graylog_index_set_default" "def" {}
 
@@ -42,6 +41,10 @@ resource "graylog_role" "r" {
   description = "Role for stream permission acc test"
   # Graylog 5.x requires non-null permissions array; use minimal safe perms
   permissions = ["dashboards:read", "indices:read"]
+
+  lifecycle {
+    ignore_changes = [permissions]
+  }
 }
 
 resource "graylog_stream" "s" {
@@ -64,12 +67,12 @@ resource "graylog_stream_permission" "p" {
 `,
 				Check: resource.ComposeTestCheckFunc(
 					resource.TestCheckResourceAttrSet("graylog_stream_permission.p", "id"),
+					testAccCheckLiveScopedPermissions("graylog_role.r", "graylog_stream.s", "streams", "edit", "read"),
 					resource.TestCheckResourceAttr("graylog_stream_permission.p", "actions.#", "2"),
 				),
 			},
 			{
 				// Update: narrow permissions to read-only
-				ExpectNonEmptyPlan: true,
 				Config: testAccProviderConfig() + `
 data "graylog_index_set_default" "def" {}
 
@@ -77,6 +80,10 @@ resource "graylog_role" "r" {
   name        = "acc-streamperm-role"
   description = "Role for stream permission acc test"
   permissions = ["dashboards:read", "indices:read"]
+
+  lifecycle {
+    ignore_changes = [permissions]
+  }
 }
 
 resource "graylog_stream" "s" {

@@ -40,6 +40,7 @@ resource "graylog_output" "gelf" {
 `,
 				Check: resource.ComposeTestCheckFunc(
 					resource.TestCheckResourceAttrSet("graylog_output.gelf", "id"),
+					testAccCheckLiveResourceExists("graylog_output.gelf", "output"),
 					resource.TestCheckResourceAttr("graylog_output.gelf", "title", "to-local-gelf"),
 				),
 			},

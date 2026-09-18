@@ -66,8 +66,32 @@ TF_ACC=1 go test -v -tags=acceptance -run TestAccIndexSet_rotationRetentionConfi
 ## Требования
 
 - Docker и Docker Compose (для integration/acceptance тестов)
-- Go 1.22+
+- Go 1.24+
 - Terraform CLI 1.6+ (для acceptance тестов)
+- `jq` (для проверки JSON plan в migration-тесте)
+
+## Что считается успешным live-тестом
+
+- Integration- и acceptance-файлы не могут использовать `httptest` или
+  подменённый HTTP transport — это проверяет
+  `TestLiveSuitesContainNoHTTPMocks`.
+- После apply основные acceptance-тесты читают объект отдельным клиентом
+  напрямую из Graylog API; snapshot repositories проверяются через OpenSearch.
+- Effect-ресурсы проверяются по фактическому результату: scoped permissions —
+  через роль, stream-output binding — через outputs потока.
+- Refresh plan после apply обязан быть пустым. `ExpectNonEmptyPlan` в
+  acceptance-наборе не используется.
+
+Осознанно не входят в OSS compatibility matrix: legacy
+`graylog_dashboard_widget` и `graylog_ldap_setting`. Их endpoints недоступны в
+поддерживаемых OSS-образах, поэтому соответствующие тесты явно пропускаются и
+не считаются подтверждением покрытия.
+
+Migration-тест строит сохранённый Terraform plan перед каждым apply. Любое
+действие с `delete`, в том числе replacement (`delete/create`), немедленно
+завершает тест ошибкой. Вывод apply также проверяется на destroy-фазу. После
+успешного перехода 5→6→7 удаляется только изолированный Docker-стек с volumes;
+`terraform destroy` в migration-тесте не выполняется.
 
 ## Переменные окружения
 

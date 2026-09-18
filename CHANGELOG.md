@@ -3,8 +3,12 @@
 ## Unreleased
 
 - `graylog_index_set`: added explicit support and documentation for Graylog 5.1+'s `TimeBasedSizeOptimizingStrategy` with `index_lifetime_min` and `index_lifetime_max` configuration. The compatibility matrix now runs the strategy test without skips on the latest stable patch releases for each supported major line: Graylog 5.2.12, 6.3.15, and 7.1.9.
-- `graylog_index_set`: creation now waits until the index set deflector is up and points to a concrete write index, preventing dependent streams from being created while the index set is only partially initialized.
+- `graylog_index_set`: creation now explicitly initializes the first physical index through Graylog's cluster deflector endpoint, then verifies that the deflector is up and points to a concrete write index. Non-idempotent cycle requests are never retried, including Graylog's proxy-timeout case, preventing duplicate empty indices while ensuring dependent streams cannot start writing to an uninitialized index set.
 - `graylog_user`: an explicit `disabled = true` is now applied through Graylog's status endpoint during creation, eliminating the one-time `false -> true` diff on the next apply.
+- Acceptance tests now verify created resources with independent live Graylog/OpenSearch API reads instead of relying only on Terraform state. Live-suite guard tests reject HTTP mocks, and acceptance steps no longer allow non-empty refresh plans.
+- The 5→6→7 migration harness now rejects every planned delete or replacement before apply and fails if apply enters a destroy phase. Its misleading final `terraform destroy` was removed; cleanup now only removes the isolated Docker stack and volumes.
+- `graylog_stream_output_binding`: fixed the Graylog 5/6/7 attach request contract (`POST /streams/{id}/outputs` with an `outputs` array) and enabled its acceptance test by default.
+- `graylog_alert` and `graylog_event_notification`: server-added defaults in polymorphic JSON configuration are projected out of state, including defaults inside array elements, preventing perpetual post-create diffs.
 
 ### Added
 - **`graylog_role` data source** and a **`role_id` attribute on the `graylog_role` resource**: both expose the role's Mongo id, which several APIs require and which nothing else in the provider could produce — `graylog_role.id` is the role *name*, and the name-keyed `/roles/{name}` endpoint does not return an id at all.

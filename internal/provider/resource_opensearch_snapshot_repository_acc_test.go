@@ -29,6 +29,7 @@ resource "graylog_opensearch_snapshot_repository" "fs" {
 }
 `,
 				Check: resource.ComposeTestCheckFunc(
+					testAccCheckLiveSnapshotRepository("graylog_opensearch_snapshot_repository.fs"),
 					resource.TestCheckResourceAttr("graylog_opensearch_snapshot_repository.fs", "name", "tf-fs"),
 					resource.TestCheckResourceAttr("graylog_opensearch_snapshot_repository.fs", "type", "fs"),
 				),
@@ -83,6 +84,7 @@ resource "graylog_opensearch_snapshot_repository" "s3" {
 }
 `,
 				Check: resource.ComposeTestCheckFunc(
+					testAccCheckLiveSnapshotRepository("graylog_opensearch_snapshot_repository.s3"),
 					resource.TestCheckResourceAttr("graylog_opensearch_snapshot_repository.s3", "name", "tf-s3"),
 					resource.TestCheckResourceAttr("graylog_opensearch_snapshot_repository.s3", "type", "s3"),
 				),
@@ -130,6 +132,7 @@ resource "graylog_opensearch_snapshot_repository" "fs_generic" {
 }
 `,
 				Check: resource.ComposeTestCheckFunc(
+					testAccCheckLiveSnapshotRepository("graylog_opensearch_snapshot_repository.fs_generic"),
 					resource.TestCheckResourceAttr("graylog_opensearch_snapshot_repository.fs_generic", "name", "tf-fs-gen"),
 					resource.TestCheckResourceAttr("graylog_opensearch_snapshot_repository.fs_generic", "type", "fs"),
 				),

@@ -9,6 +9,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -36,7 +37,11 @@ func (r *roleResource) Schema(ctx context.Context, _ resource.SchemaRequest, res
 	resp.Schema = schema.Schema{
 		Description: "Manages a Graylog Role.",
 		Attributes: map[string]schema.Attribute{
-			"id": schema.StringAttribute{Computed: true, Description: "Role identifier (role name)"},
+			"id": schema.StringAttribute{
+				Computed:      true,
+				Description:   "Role identifier (role name)",
+				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
+			},
 			"role_id": schema.StringAttribute{
 				Computed: true,
 				Description: "Mongo id of the role. Several APIs take a role id and reject nothing when given " +
@@ -47,8 +52,12 @@ func (r *roleResource) Schema(ctx context.Context, _ resource.SchemaRequest, res
 			"name":        schema.StringAttribute{Required: true, Description: "Role name (immutable)"},
 			"description": schema.StringAttribute{Optional: true, Description: "Description"},
 			"permissions": schema.ListAttribute{Optional: true, ElementType: types.StringType, Description: "List of permissions"},
-			"read_only":   schema.BoolAttribute{Computed: true, Description: "Read-only system role"},
-			"timeouts":    timeouts.Attributes(ctx, timeouts.Opts{Create: true, Update: true, Delete: true}),
+			"read_only": schema.BoolAttribute{
+				Computed:      true,
+				Description:   "Read-only system role",
+				PlanModifiers: []planmodifier.Bool{boolplanmodifier.UseStateForUnknown()},
+			},
+			"timeouts": timeouts.Attributes(ctx, timeouts.Opts{Create: true, Update: true, Delete: true}),
 		},
 	}
 }

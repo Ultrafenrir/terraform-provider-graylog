@@ -351,7 +351,7 @@ test-migration:
 	  $(MAKE) GRAYLOG_VERSION=$(GRAYLOG_5_VERSION) graylog-up; \
 	  $(MAKE) graylog-wait; \
 	  terraform -chdir=test/migration/step1 init -upgrade; \
-	  terraform -chdir=test/migration/step1 apply -auto-approve; \
+	  bash test/migration/apply-no-destroy.sh test/migration/step1 step1; \
 	  set +e; terraform -chdir=test/migration/step1 plan -detailed-exitcode; code=$$?; set -e; \
 	  if [ "$$code" != "0" ]; then echo "Step1 plan returned $$code (expected 0)"; $(MAKE) graylog-down; exit 1; fi; \
 	  for ver in $(GRAYLOG_6_0_VERSION) $(GRAYLOG_6_1_VERSION) $(GRAYLOG_6_2_VERSION) $(GRAYLOG_6_VERSION); do \
@@ -360,7 +360,7 @@ test-migration:
 	    $(MAKE) graylog-wait; \
 	  done; \
 	  terraform -chdir=test/migration/step2 init -upgrade; \
-	  terraform -chdir=test/migration/step2 apply -auto-approve; \
+	  bash test/migration/apply-no-destroy.sh test/migration/step2 step2; \
 	  set +e; terraform -chdir=test/migration/step2 plan -detailed-exitcode; code=$$?; set -e; \
 	  if [ "$$code" != "0" ]; then echo "Step2 plan returned $$code (expected 0)"; $(MAKE) graylog-down; exit 1; fi; \
 	  for ver in $(GRAYLOG_7_0_VERSION) $(GRAYLOG_7_VERSION); do \
@@ -369,15 +369,12 @@ test-migration:
 	    $(MAKE) graylog-wait; \
 	  done; \
 	  terraform -chdir=test/migration/step3 init -upgrade; \
-	  terraform -chdir=test/migration/step3 apply -auto-approve; \
+	  bash test/migration/apply-no-destroy.sh test/migration/step3 step3; \
 	  set +e; terraform -chdir=test/migration/step3 plan -detailed-exitcode; code=$$?; set -e; \
 	  if [ "$$code" != "0" ]; then echo "Step3 plan returned $$code (expected 0)"; $(MAKE) graylog-down; exit 1; fi; \
-	  if [ -z "${SKIP_DESTROY:-}" ]; then \
-	    echo "==== Destroying after successful migration ===="; \
-	    terraform -chdir=test/migration/step3 destroy -auto-approve || true; \
-	  fi; \
+	  echo "==== Migration passed; removing the isolated Docker test stack ===="; \
 	  $(MAKE) graylog-down >/dev/null; \
-	  echo "Migration test passed (5→6→7)"'
+	  echo "Migration test passed without resource destruction (5→6→7)"'
 
 # ---------- Sequential Graylog upgrade (manual diagnostics) ----------
 # Follows Graylog's supported incremental minor-version upgrade path, using

@@ -34,6 +34,7 @@ resource "graylog_stream" "s" {
 `,
 				Check: resource.ComposeTestCheckFunc(
 					resource.TestCheckResourceAttrSet("graylog_stream.s", "id"),
+					testAccCheckLiveResourceExists("graylog_stream.s", "stream"),
 					resource.TestCheckResourceAttr("graylog_stream.s", "title", "acc-stream"),
 					resource.TestCheckResourceAttr("graylog_stream.s", "description", "Acceptance test stream"),
 				),

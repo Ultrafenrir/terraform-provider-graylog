@@ -36,11 +36,14 @@ func TestAccDashboardPermission_basic(t *testing.T) {
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				ExpectNonEmptyPlan: true,
 				Config: testAccProviderConfig() + `
 resource "graylog_role" "r" {
   name        = "acc-dashperm-role"
   description = "Role for dashboard permission acc test"
+
+  lifecycle {
+    ignore_changes = [permissions]
+  }
 }
 
 resource "graylog_dashboard" "d" {
@@ -56,6 +59,7 @@ resource "graylog_dashboard_permission" "p" {
 `,
 				Check: resource.ComposeTestCheckFunc(
 					resource.TestCheckResourceAttrSet("graylog_dashboard_permission.p", "id"),
+					testAccCheckLiveScopedPermissions("graylog_role.r", "graylog_dashboard.d", "dashboards", "edit", "read"),
 					resource.TestCheckResourceAttr("graylog_dashboard_permission.p", "actions.#", "2"),
 					// Actions are sorted alphabetically in state: edit, read
 					resource.TestCheckResourceAttr("graylog_dashboard_permission.p", "actions.0", "edit"),

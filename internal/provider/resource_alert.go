@@ -14,6 +14,8 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
@@ -106,7 +108,11 @@ func (r *alertResource) Schema(ctx context.Context, _ resource.SchemaRequest, re
 		Version:     6,
 		Description: "Manages a Graylog Event Definition (alerts)",
 		Attributes: map[string]schema.Attribute{
-			"id":          schema.StringAttribute{Computed: true, Description: "Event Definition ID"},
+			"id": schema.StringAttribute{
+				Computed:      true,
+				Description:   "Event Definition ID",
+				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
+			},
 			"title":       schema.StringAttribute{Required: true, Description: "Title"},
 			"description": schema.StringAttribute{Optional: true, Description: "Description"},
 			"priority":    schema.Int64Attribute{Optional: true, Description: "Priority (severity)"},
@@ -341,10 +347,9 @@ func (r *alertResource) Read(ctx context.Context, req resource.ReadRequest, resp
 	dataV2.Description = types.StringValue(ed.Description)
 	dataV2.Priority = types.Int64Value(int64(ed.Priority))
 	dataV2.Alert = types.BoolValue(ed.Alert)
-	// Pass-through config back to state as JSON
+	// Project out defaults Graylog adds to polymorphic configuration objects.
 	if b, err := json.Marshal(ed.Config); err == nil {
-		// Canonicalize for stable plans
-		if s, err2 := CanonicalizeJSONFromString(string(b)); err2 == nil {
+		if s, err2 := ProjectAndCanonicalizeJSON(string(b), dataV2.Config.ValueString()); err2 == nil {
 			dataV2.Config = types.StringValue(s)
 		} else {
 			dataV2.Config = types.StringValue(string(b))

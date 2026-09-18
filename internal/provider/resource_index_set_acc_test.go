@@ -3,12 +3,32 @@
 package provider
 
 import (
+	"encoding/base64"
+	"fmt"
+	"os"
 	"strconv"
 	"testing"
 
+	"github.com/Ultrafenrir/terraform-provider-graylog/internal/client"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/plancheck"
 )
+
+func testAccCheckIndexSetWriteReady(id string) error {
+	baseURL := os.Getenv("URL")
+	token := os.Getenv("TOKEN")
+	if _, err := base64.StdEncoding.DecodeString(token); err != nil {
+		token = base64.StdEncoding.EncodeToString([]byte(token))
+	}
+	status, err := client.New(baseURL, token).GetIndexSetDeflectorStatus(id)
+	if err != nil {
+		return fmt.Errorf("read index set %s deflector status: %w", id, err)
+	}
+	if !status.IsUp || status.CurrentTarget == "" {
+		return fmt.Errorf("index set %s is not write-ready: is_up=%t current_target=%q", id, status.IsUp, status.CurrentTarget)
+	}
+	return nil
+}
 
 func TestAccIndexSet_basic(t *testing.T) {
 	resource.ParallelTest(t, resource.TestCase{
@@ -46,6 +66,8 @@ resource "graylog_index_set" "test" {
 `,
 				Check: resource.ComposeTestCheckFunc(
 					resource.TestCheckResourceAttrSet("graylog_index_set.test", "id"),
+					testAccCheckLiveResourceExists("graylog_index_set.test", "index_set"),
+					resource.TestCheckResourceAttrWith("graylog_index_set.test", "id", testAccCheckIndexSetWriteReady),
 					resource.TestCheckResourceAttr("graylog_index_set.test", "title", "acc-main-index"),
 					// index_analyzer is Computed-only (not user-configurable); just confirm
 					// Graylog's own value gets populated into state.
@@ -343,6 +365,8 @@ resource "graylog_index_set" "time_size_optimizing" {
 `,
 				Check: resource.ComposeTestCheckFunc(
 					resource.TestCheckResourceAttrSet("graylog_index_set.time_size_optimizing", "id"),
+					testAccCheckLiveResourceExists("graylog_index_set.time_size_optimizing", "index_set"),
+					resource.TestCheckResourceAttrWith("graylog_index_set.time_size_optimizing", "id", testAccCheckIndexSetWriteReady),
 					resource.TestCheckResourceAttr("graylog_index_set.time_size_optimizing", "rotation.class", "org.graylog2.indexer.rotation.strategies.TimeBasedSizeOptimizingStrategy"),
 					resource.TestCheckResourceAttr("graylog_index_set.time_size_optimizing", "rotation.config.index_lifetime_min", "P30D"),
 					resource.TestCheckResourceAttr("graylog_index_set.time_size_optimizing", "rotation.config.index_lifetime_max", "P40D"),
