@@ -11,8 +11,7 @@ Manages a Graylog index set. Part of the Graylog Terraform Provider for Graylog 
 
 Creation returns only after Graylog has created the first physical index and
 attached the index set's deflector alias. In addition to the index-set
-permissions, the provider credentials therefore need `deflector:read` and
-`deflector:cycle`.
+permissions, the provider credentials therefore need `deflector:read`.
 
 ## Example Usage
 

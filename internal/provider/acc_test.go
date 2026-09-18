@@ -142,6 +142,26 @@ func testAccCheckLiveStreamOutputBinding(streamResource, outputResource string) 
 	}
 }
 
+// testAccCheckLiveStreamIndexSet verifies the relationship through Graylog's
+// stream API instead of trusting the dependency edge or Terraform state.
+func testAccCheckLiveStreamIndexSet(streamResource, indexSetResource string) resource.TestCheckFunc {
+	return func(state *terraform.State) error {
+		streamState, streamOK := state.RootModule().Resources[streamResource]
+		indexSetState, indexSetOK := state.RootModule().Resources[indexSetResource]
+		if !streamOK || streamState.Primary == nil || !indexSetOK || indexSetState.Primary == nil {
+			return fmt.Errorf("missing stream %s or index set %s from Terraform state", streamResource, indexSetResource)
+		}
+		stream, err := testAccClient().GetStream(streamState.Primary.ID)
+		if err != nil {
+			return fmt.Errorf("read stream %q from live Graylog API: %w", streamState.Primary.ID, err)
+		}
+		if stream.IndexSetID != indexSetState.Primary.ID {
+			return fmt.Errorf("live stream %q points to index set %q, want %q", stream.ID, stream.IndexSetID, indexSetState.Primary.ID)
+		}
+		return nil
+	}
+}
+
 func testAccCheckLiveSnapshotRepository(resourceName string) resource.TestCheckFunc {
 	return func(state *terraform.State) error {
 		resourceState, ok := state.RootModule().Resources[resourceName]
