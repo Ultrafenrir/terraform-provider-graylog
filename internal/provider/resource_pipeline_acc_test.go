@@ -14,10 +14,9 @@ func TestAccPipeline_basic(t *testing.T) {
 		Steps: []resource.TestStep{
 			{
 				// Разные версии GL чувствительны к синтаксису DSL. Используем минимальный, совместимый source.
-				ExpectNonEmptyPlan: true,
 				Config: testAccProviderConfig() + `
 resource "graylog_pipeline" "p" {
-  title       = "acc-pipeline"
+  title       = "tf_acc"
   description = "Acceptance pipeline"
   source = <<-EOT
 pipeline "tf_acc"
@@ -28,7 +27,8 @@ end
 `,
 				Check: resource.ComposeTestCheckFunc(
 					resource.TestCheckResourceAttrSet("graylog_pipeline.p", "id"),
-					resource.TestCheckResourceAttr("graylog_pipeline.p", "title", "acc-pipeline"),
+					testAccCheckLiveResourceExists("graylog_pipeline.p", "pipeline"),
+					resource.TestCheckResourceAttr("graylog_pipeline.p", "title", "tf_acc"),
 				),
 			},
 			{

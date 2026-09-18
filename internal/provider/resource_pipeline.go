@@ -11,6 +11,8 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
@@ -35,7 +37,11 @@ func (r *pipelineResource) Schema(ctx context.Context, _ resource.SchemaRequest,
 		Version:     1,
 		Description: "Manages a Graylog pipeline",
 		Attributes: map[string]schema.Attribute{
-			"id":          schema.StringAttribute{Computed: true, Description: "Pipeline ID"},
+			"id": schema.StringAttribute{
+				Computed:      true,
+				Description:   "Pipeline ID",
+				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
+			},
 			"title":       schema.StringAttribute{Required: true, Description: "Pipeline title"},
 			"description": schema.StringAttribute{Optional: true, Description: "Pipeline description"},
 			"source":      schema.StringAttribute{Optional: true, Description: "Pipeline source definition"},

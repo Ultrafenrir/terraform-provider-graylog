@@ -88,6 +88,7 @@ func TestAccClusterConfig_basic(t *testing.T) {
 			{
 				Config: config,
 				Check: resource.ComposeTestCheckFunc(
+					testAccCheckLiveResourceExists("graylog_cluster_config.c", "cluster_config"),
 					resource.TestCheckResourceAttr("graylog_cluster_config.c", "id", class),
 					resource.TestCheckResourceAttr("graylog_cluster_config.c", "class", class),
 					resource.TestCheckResourceAttrSet("graylog_cluster_config.c", "config_json"),

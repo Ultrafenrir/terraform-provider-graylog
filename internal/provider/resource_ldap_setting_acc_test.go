@@ -17,7 +17,6 @@ func TestAccLDAPSetting_basic(t *testing.T) {
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				ExpectNonEmptyPlan: true,
 				Config: testAccProviderConfig() + `
 resource "graylog_ldap_setting" "this" {
   enabled = false

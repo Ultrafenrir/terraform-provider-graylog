@@ -36,7 +36,6 @@ func TestAccDashboardWidget_basic(t *testing.T) {
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				ExpectNonEmptyPlan: true,
 				Config: testAccProviderConfig() + fmt.Sprintf(`
 resource "graylog_dashboard" "d" {
   title       = "acc-dash"

@@ -1317,28 +1317,12 @@ func (c *Client) DeleteOutput(id string) error {
 }
 
 func (c *Client) AttachOutputToStream(streamID, outputID string) error {
-	// Try multiple known variants across versions/images, from most specific to generic
-	// 1) Legacy style: POST /api/streams/{id}/outputs/{outputId}
-	legacy := fmt.Sprintf("/api/streams/%s/outputs/%s", streamID, outputID)
-	if _, err := c.doRequest("POST", legacy, nil); err == nil {
-		return nil
-	}
-	// 1b) Some images may expect PUT for legacy-style attach
-	if _, err := c.doRequest("PUT", legacy, nil); err == nil {
-		return nil
-	}
-	// 2) Newer style: POST /api/streams/{id}/outputs with JSON body {"output_id":"..."}
+	// Graylog 5/6/7 all accept a set of output IDs at this endpoint. Do not
+	// probe alternative methods: doing so hid a broken payload behind several
+	// expected 405 responses in the acceptance suite.
 	path := fmt.Sprintf("/api/streams/%s/outputs", streamID)
-	body := map[string]string{"output_id": outputID}
-	if _, err := c.doRequest("POST", path, body); err == nil {
-		return nil
-	}
-	// 2b) Try PUT with body as a last resort
-	if _, err := c.doRequest("PUT", path, body); err == nil {
-		return nil
-	}
-	// Return last error (from PUT with body) for context
-	_, err := c.doRequest("PUT", legacy, nil)
+	body := map[string][]string{"outputs": {outputID}}
+	_, err := c.doRequest("POST", path, body)
 	return err
 }
 
@@ -1982,6 +1966,49 @@ func (c *Client) GetIndexSetDeflectorStatus(id string) (*DeflectorStatus, error)
 		return nil, fmt.Errorf("failed to decode deflector status for index set %s: %w", id, err)
 	}
 	return &out, nil
+}
+
+// InitializeIndexSet synchronously creates the next physical index and points
+// the index set's deflector alias at it. Graylog's create-index-set endpoint
+// only persists configuration; without this call initialization is left to a
+// periodic background job and can be delayed indefinitely when that job is not
+// running on the node handling the request.
+func (c *Client) InitializeIndexSet(id string) error {
+	// Use the cluster proxy so this also works when the configured API endpoint
+	// resolves to a non-leader Graylog node.
+	path := fmt.Sprintf("/api/cluster/deflector/%s/cycle", id)
+	// Cycling is not idempotent: retrying a timed-out request can create several
+	// empty indices even though the first request is still completing in Graylog.
+	withoutRetries := *c
+	withoutRetries.MaxRetries = 0
+	if _, err := withoutRetries.doRequest("POST", path, nil); err != nil {
+		return fmt.Errorf("failed to initialize index set %s: %w", id, err)
+	}
+	return nil
+}
+
+// EnsureIndexSetReady initializes an index set when necessary and waits until
+// its deflector alias has a concrete write target.
+func (c *Client) EnsureIndexSetReady(id string, interval time.Duration) error {
+	status, err := c.GetIndexSetDeflectorStatus(id)
+	if err == nil && status.IsUp && strings.TrimSpace(status.CurrentTarget) != "" {
+		return nil
+	}
+	if err != nil && !errors.Is(err, ErrNotFound) {
+		return fmt.Errorf("failed to get deflector status for index set %s: %w", id, err)
+	}
+	if err := c.InitializeIndexSet(id); err != nil {
+		// Index creation can outlive the HTTP client's response timeout. Graylog
+		// continues the non-idempotent cycle server-side. Its cluster proxy reports
+		// that case as API error 500 "timeout". Never retry it; keep observing the
+		// alias instead. Other errors are definitive and actionable.
+		var graylogErr *GraylogError
+		proxyTimedOut := errors.As(err, &graylogErr) && graylogErr.Status == http.StatusInternalServerError && strings.EqualFold(strings.TrimSpace(graylogErr.Message), "timeout")
+		if !errors.Is(err, context.DeadlineExceeded) && !proxyTimedOut {
+			return err
+		}
+	}
+	return c.WaitForIndexSetReady(id, interval)
 }
 
 // WaitForIndexSetReady waits until Graylog has created the initial physical

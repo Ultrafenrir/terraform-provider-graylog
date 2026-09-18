@@ -66,6 +66,9 @@ func TestAccLookupStack_basic(t *testing.T) {
 					resource.TestCheckResourceAttrSet("graylog_lookup_cache.c", "id"),
 					resource.TestCheckResourceAttrSet("graylog_lookup_adapter.a", "id"),
 					resource.TestCheckResourceAttrSet("graylog_lookup_table.t", "id"),
+					testAccCheckLiveResourceExists("graylog_lookup_cache.c", "lookup_cache"),
+					testAccCheckLiveResourceExists("graylog_lookup_adapter.a", "lookup_adapter"),
+					testAccCheckLiveResourceExists("graylog_lookup_table.t", "lookup_table"),
 					resource.TestCheckResourceAttr("graylog_lookup_table.t", "name", "tf-acc-table"),
 					// Left unset in the configuration, so the server value is
 					// adopted rather than fought over.

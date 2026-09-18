@@ -54,6 +54,7 @@ func TestAccAuthBackend_basic(t *testing.T) {
 				Config: testAccAuthBackend("tf-acc-ldap", "admin"),
 				Check: resource.ComposeTestCheckFunc(
 					resource.TestCheckResourceAttrSet("graylog_auth_backend.ldap", "id"),
+					testAccCheckLiveResourceExists("graylog_auth_backend.ldap", "auth_backend"),
 					resource.TestCheckResourceAttr("graylog_auth_backend.ldap", "title", "tf-acc-ldap"),
 					resource.TestCheckResourceAttr("graylog_auth_backend.ldap", "system_user_password", "admin"),
 					resource.TestCheckResourceAttr("graylog_auth_backend_activation.active", "id", "active"),

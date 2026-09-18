@@ -116,11 +116,15 @@ func (r *eventNotificationResource) Read(ctx context.Context, req resource.ReadR
 	}
 	data.Title = types.StringValue(got.Title)
 	data.Type = types.StringValue(got.Type)
-	data.Description = types.StringValue(got.Description)
-	if canon, err := CanonicalizeJSONValue(got.Config); err == nil {
-		data.Config = types.StringValue(canon)
-	} else if b, err2 := json.Marshal(got.Config); err2 == nil { // fallback
-		data.Config = types.StringValue(string(b))
+	if !(data.Description.IsNull() && got.Description == "") {
+		data.Description = types.StringValue(got.Description)
+	}
+	if b, err := json.Marshal(got.Config); err == nil {
+		if projected, err2 := ProjectAndCanonicalizeJSON(string(b), data.Config.ValueString()); err2 == nil {
+			data.Config = types.StringValue(projected)
+		} else {
+			data.Config = types.StringValue(string(b))
+		}
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }

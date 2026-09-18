@@ -334,7 +334,11 @@ func (r *indexSetResource) Create(ctx context.Context, req resource.CreateReques
 	// the initial physical index and attaching the <prefix>_deflector alias. Do
 	// not release dependent resources (notably streams) until that write path is
 	// actually usable.
-	if err := r.client.WithContext(ctx).WaitForIndexSetReady(created.ID, time.Second); err != nil {
+	// Graylog only persists the index-set configuration in the create endpoint;
+	// normally a background periodical creates the initial index later. Trigger
+	// that initialization synchronously so dependent streams can safely receive
+	// messages as soon as Terraform finishes this resource.
+	if err := r.client.WithContext(ctx).EnsureIndexSetReady(created.ID, time.Second); err != nil {
 		resp.Diagnostics.AddError("Error waiting for index set initialization", err.Error())
 		resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 		return

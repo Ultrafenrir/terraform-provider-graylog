@@ -40,11 +40,17 @@ func TestProjectAndCanonicalizeJSON(t *testing.T) {
 			want:   `{"outer":{"kept":1}}`,
 		},
 		{
-			// Masking element-wise would hide a member the server added.
-			name:   "arrays are taken whole",
+			// A different length is membership drift and remains visible.
+			name:   "array membership changes are taken whole",
 			server: `{"names":["a","b","c"]}`,
 			mask:   `{"names":["a"]}`,
 			want:   `{"names":["a","b","c"]}`,
+		},
+		{
+			name:   "server defaults inside array objects are dropped",
+			server: `{"series":[{"id":"count","function":"count","type":null}]}`,
+			mask:   `{"series":[{"id":"count","function":"count"}]}`,
+			want:   `{"series":[{"function":"count","id":"count"}]}`,
 		},
 		{
 			name:   "large integers keep their notation",

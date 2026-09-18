@@ -42,6 +42,7 @@ resource "graylog_dashboard" "d" {
 `,
 				Check: resource.ComposeTestCheckFunc(
 					resource.TestCheckResourceAttrSet("graylog_dashboard.d", "id"),
+					testAccCheckLiveResourceExists("graylog_dashboard.d", "dashboard"),
 					resource.TestCheckResourceAttr("graylog_dashboard.d", "title", "acc-dashboard"),
 				),
 			},

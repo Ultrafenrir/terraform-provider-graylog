@@ -34,7 +34,6 @@ func TestAccEventNotification_basic(t *testing.T) {
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				ExpectNonEmptyPlan: true,
 				Config: testAccProviderConfig() + fmt.Sprintf(`
 resource "graylog_event_notification" "n" {
   title = "acc-email"
@@ -50,6 +49,7 @@ resource "graylog_event_notification" "n" {
 `),
 				Check: resource.ComposeTestCheckFunc(
 					resource.TestCheckResourceAttrSet("graylog_event_notification.n", "id"),
+					testAccCheckLiveResourceExists("graylog_event_notification.n", "event_notification"),
 					resource.TestCheckResourceAttr("graylog_event_notification.n", "title", "acc-email"),
 				),
 			},

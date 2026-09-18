@@ -24,6 +24,7 @@ resource "graylog_role" "r" {
 `,
 				Check: resource.ComposeTestCheckFunc(
 					resource.TestCheckResourceAttrSet("graylog_role.r", "id"),
+					testAccCheckLiveResourceExists("graylog_role.r", "role"),
 					resource.TestCheckResourceAttr("graylog_role.r", "name", "tf-acc-role"),
 				),
 			},
