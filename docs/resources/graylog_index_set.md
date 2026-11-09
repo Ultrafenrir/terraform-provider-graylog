@@ -111,6 +111,44 @@ resource "graylog_index_set" "rotate_time_size_optimizing" {
 }
 ```
 
+### Hot-only Data Tiering (Graylog 6+)
+
+Data Tiering is configured separately from the legacy `rotation` and `retention`
+strategies. Set both attributes below; do not configure those strategy blocks
+alongside `data_tiering`.
+
+```hcl
+resource "graylog_index_set" "tiered" {
+  title        = "Application logs"
+  index_prefix = "application_logs"
+  shards       = 1
+  replicas     = 0
+
+  use_legacy_rotation = false
+  data_tiering = jsonencode({
+    type               = "hot_only"
+    index_lifetime_min = "P30D"
+    index_lifetime_max = "P40D"
+  })
+}
+```
+
+Lifetime bounds are ISO-8601 periods; Graylog validates their values and ordering.
+Changing the bounds updates the existing index set in place. This resource
+currently accepts `hot_only` configuration; warm-tier provisioning and Enterprise
+tiering types are outside this feature's scope.
+
+Omitting **both** attributes leaves tiering unmanaged: existing server tiering is
+preserved during other updates. Removing the attributes does not disable tiering.
+To switch back to legacy rotation, remove `data_tiering`, set
+`use_legacy_rotation = true`, and configure the desired `rotation` and `retention`
+blocks. Graylog clears the tiering document when that mode is selected.
+
+Refresh detects changes to the JSON keys under management, ignoring formatting
+and extra server-populated keys. Import adopts an existing tiering document and
+does not materialize legacy strategy blocks when tiering is active. On Graylog 5,
+omit both new attributes; explicitly configuring either is rejected before writing.
+
 ## Argument Reference
 
 An index set holds real data. **Only `index_prefix` (renaming) forces recreation.** Every other
@@ -127,6 +165,8 @@ field is a safe, in-place update — none of them destroy or replace an existing
 - `index_optimization_disabled` (Boolean, Optional) — Disable index optimization (defaults to false). Safe to change in place.
 - `default` (Boolean, Optional) — Whether this is the default index set. Safe to change in place. Note: this is sent as a plain field on the create/update body; some Graylog versions may require a dedicated "set default" API call to actually change which index set is default — verify against your server before relying on this to switch defaults.
 - `timeouts` (Block, Optional) — Customize create/update/delete timeouts.
+- `data_tiering` (String, Optional) — JSON object containing `type = "hot_only"`, `index_lifetime_min`, and `index_lifetime_max`. Requires `use_legacy_rotation = false`. Incompatible with `rotation` and `retention` blocks.
+- `use_legacy_rotation` (Boolean, Optional) — `false` enables the supplied tiering configuration; `true` without `data_tiering` returns to legacy rotation. Omit both attributes to preserve the current server configuration. Requires Graylog 6+.
 
 ### rotation (Block) — Graylog 5+
 - `class` (String, Optional) — Fully qualified rotation strategy class, e.g. `org.graylog2.indexer.rotation.strategies.MessageCountRotationStrategy`.
