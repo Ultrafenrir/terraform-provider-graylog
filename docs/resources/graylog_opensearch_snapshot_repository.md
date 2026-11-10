@@ -18,7 +18,7 @@ Note: This resource communicates directly with OpenSearch (not Graylog). Configu
 
 Prerequisites (when using the repo's docker-compose for local tests):
 - OpenSearch has the `repository-s3` plugin installed (preinstalled in `compose/opensearch/Dockerfile`).
-- MinIO S3 API is published on host port `9002` (console on `9001`).
+- SeaweedFS creates the `tf-snapshots` bucket at startup. Its S3 API is published on host port `9002` for diagnostics. OpenSearch uses the Docker-network endpoint `http://seaweedfs:8333`.
 - For filesystem repositories, OpenSearch lists the snapshot path in `path.repo` and the directory is bind-mounted (see `./compose/os_snapshots:/usr/share/opensearch/snapshots`).
 
 ## Example Usage
@@ -44,7 +44,7 @@ resource "graylog_opensearch_snapshot_repository" "fs_repo" {
 }
 ```
 
-S3-compatible repository (using MinIO in docker-compose):
+S3-compatible repository (using SeaweedFS in docker-compose):
 
 ```hcl
 provider "graylog" {
@@ -58,11 +58,12 @@ resource "graylog_opensearch_snapshot_repository" "s3_repo" {
 
   s3_settings {
     bucket            = "tf-snapshots"
-    endpoint          = "http://127.0.0.1:9002" # MinIO S3 API (mapped from container 9000 → host 9002)
+    region            = "us-east-1"
+    endpoint          = "http://seaweedfs:8333" # Endpoint reachable from the OpenSearch container
     protocol          = "http"
     path_style_access = true
-    access_key        = "minioadmin"
-    secret_key        = "minioadmin"
+    access_key        = "snapshot-test"
+    secret_key        = "snapshot-test-secret"
     base_path         = "opensearch"
   }
 }
@@ -147,10 +148,10 @@ Tip: For production, prefer a scheduled job or a dedicated tool (e.g., OpenSearc
 ### s3_settings
 - `bucket` (Required) — Bucket name.
 - `region` (Optional) — AWS region.
-- `endpoint` (Optional) — Custom endpoint (e.g., MinIO).
+- `endpoint` (Optional) — Custom endpoint (e.g., SeaweedFS).
 - `base_path` (Optional) — Base path/prefix inside bucket.
 - `protocol` (Optional) — `http` or `https`.
-- `path_style_access` (Optional) — Force path-style requests (true for MinIO).
+- `path_style_access` (Optional) — Force path-style requests (true for SeaweedFS).
 - `read_only` (Optional) — Open in read-only mode.
 - `access_key`, `secret_key`, `session_token` (Optional, Sensitive) — Credentials (never returned in state).
 

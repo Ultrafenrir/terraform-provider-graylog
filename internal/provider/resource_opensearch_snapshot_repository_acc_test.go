@@ -61,7 +61,7 @@ func TestAccOpenSearchSnapshotRepository_s3(t *testing.T) {
 	if os.Getenv("ENABLE_OS_S3_ACC") == "" {
 		t.Skip("S3 repository test disabled; set ENABLE_OS_S3_ACC=1 to enable (requires OpenSearch s3 plugin)")
 	}
-	// MinIO is expected to be available from docker-compose
+	// SeaweedFS is expected to be available from docker-compose
 	resource.ParallelTest(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
@@ -74,11 +74,11 @@ resource "graylog_opensearch_snapshot_repository" "s3" {
   s3_settings {
     bucket            = "tf-snapshots"
     region            = "us-east-1"
-    endpoint          = "http://minio:9000"
+    endpoint          = "http://seaweedfs:8333"
     protocol          = "http"
     path_style_access = true
-    access_key        = "minioadmin"
-    secret_key        = "minioadmin"
+    access_key        = "snapshot-test"
+    secret_key        = "snapshot-test-secret"
     base_path         = "acc"
   }
 }
