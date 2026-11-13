@@ -4,11 +4,12 @@ resource "graylog_opensearch_snapshot_repository" "s3_repo" {
 
   s3_settings {
     bucket            = "tf-snapshots"
-    endpoint          = "http://127.0.0.1:9002"
+    region            = "us-east-1"
+    endpoint          = "http://seaweedfs:8333"
     protocol          = "http"
     path_style_access = true
-    access_key        = "minioadmin"
-    secret_key        = "minioadmin"
+    access_key        = "snapshot-test"
+    secret_key        = "snapshot-test-secret"
     base_path         = "examples"
   }
 }

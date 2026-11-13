@@ -27,20 +27,22 @@ import (
 type indexSetResource struct{ client *client.Client }
 
 type indexSetModel struct {
-	ID               types.String   `tfsdk:"id"`
-	Title            types.String   `tfsdk:"title"`
-	Description      types.String   `tfsdk:"description"`
-	IndexPrefix      types.String   `tfsdk:"index_prefix"`
-	Shards           types.Int64    `tfsdk:"shards"`
-	Replicas         types.Int64    `tfsdk:"replicas"`
-	IndexAnalyzer    types.String   `tfsdk:"index_analyzer"`
-	FieldTypeRefresh types.Int64    `tfsdk:"field_type_refresh_interval"`
-	IndexOptMaxSeg   types.Int64    `tfsdk:"index_optimization_max_num_segments"`
-	IndexOptDisabled types.Bool     `tfsdk:"index_optimization_disabled"`
-	Rotation         *strategyModel `tfsdk:"rotation"`
-	Retention        *strategyModel `tfsdk:"retention"`
-	Default          types.Bool     `tfsdk:"default"`
-	Timeouts         timeouts.Value `tfsdk:"timeouts"`
+	ID                types.String   `tfsdk:"id"`
+	Title             types.String   `tfsdk:"title"`
+	Description       types.String   `tfsdk:"description"`
+	IndexPrefix       types.String   `tfsdk:"index_prefix"`
+	Shards            types.Int64    `tfsdk:"shards"`
+	Replicas          types.Int64    `tfsdk:"replicas"`
+	IndexAnalyzer     types.String   `tfsdk:"index_analyzer"`
+	FieldTypeRefresh  types.Int64    `tfsdk:"field_type_refresh_interval"`
+	IndexOptMaxSeg    types.Int64    `tfsdk:"index_optimization_max_num_segments"`
+	IndexOptDisabled  types.Bool     `tfsdk:"index_optimization_disabled"`
+	Rotation          *strategyModel `tfsdk:"rotation"`
+	Retention         *strategyModel `tfsdk:"retention"`
+	DataTiering       types.String   `tfsdk:"data_tiering"`
+	UseLegacyRotation types.Bool     `tfsdk:"use_legacy_rotation"`
+	Default           types.Bool     `tfsdk:"default"`
+	Timeouts          timeouts.Value `tfsdk:"timeouts"`
 }
 
 type strategyModel struct {
@@ -150,6 +152,14 @@ func (r *indexSetResource) Schema(ctx context.Context, _ resource.SchemaRequest,
 				PlanModifiers: []planmodifier.Bool{
 					boolplanmodifier.UseStateForUnknown(),
 				},
+			},
+			"data_tiering": schema.StringAttribute{
+				Optional:    true,
+				Description: "Hot-only data tiering configuration as JSON (Graylog 6+): type, index_lifetime_min, index_lifetime_max. Requires use_legacy_rotation = false. Omitting it leaves existing server configuration unmanaged.",
+			},
+			"use_legacy_rotation": schema.BoolAttribute{
+				Optional:    true,
+				Description: "Set false with data_tiering to enable data tiering, or true without data_tiering to switch to legacy rotation (Graylog 6+). Omit both attributes to preserve existing server settings.",
 			},
 			"timeouts": timeouts.Attributes(ctx, timeouts.Opts{Create: true, Update: true, Delete: true}),
 		},
@@ -298,6 +308,8 @@ func (r *indexSetResource) Create(ctx context.Context, req resource.CreateReques
 		RotationStrategyConfig:          mapFromStringMap(ctx, data.Rotation),
 		RetentionStrategyClass:          getStrategyClass(data.Retention),
 		RetentionStrategyConfig:         mapFromStringMap(ctx, data.Retention),
+		DataTiering:                     indexSetTieringJSON(data.DataTiering),
+		UseLegacyRotation:               indexSetLegacyRotation(data.UseLegacyRotation),
 		Default:                         data.Default.ValueBool(),
 	})
 	if err != nil {
@@ -364,6 +376,7 @@ func (r *indexSetResource) Create(ctx context.Context, req resource.CreateReques
 
 	// Apply all fields from API response
 	applyIndexSetReadState(ctx, &data, is)
+	resp.Diagnostics.Append(refreshIndexSetTiering(&data, is, false)...)
 
 	// Don't materialize rotation/retention blocks if user didn't specify them
 	if !wantRotation {
@@ -418,6 +431,7 @@ func (r *indexSetResource) Read(ctx context.Context, req resource.ReadRequest, r
 		return
 	}
 	applyIndexSetReadState(ctx, &data, is)
+	resp.Diagnostics.Append(refreshIndexSetTiering(&data, is, false)...)
 
 	// Don't materialize rotation/retention blocks if they weren't in prior state
 	if !hadRotation {
@@ -475,6 +489,8 @@ func (r *indexSetResource) Update(ctx context.Context, req resource.UpdateReques
 		RotationStrategyConfig:          mapFromStringMap(ctx, plan.Rotation),
 		RetentionStrategyClass:          getStrategyClass(plan.Retention),
 		RetentionStrategyConfig:         mapFromStringMap(ctx, plan.Retention),
+		DataTiering:                     indexSetTieringJSON(plan.DataTiering),
+		UseLegacyRotation:               indexSetLegacyRotation(plan.UseLegacyRotation),
 		Default:                         plan.Default.ValueBool(),
 	})
 	if err != nil {
@@ -514,6 +530,7 @@ func (r *indexSetResource) Update(ctx context.Context, req resource.UpdateReques
 
 	// Apply all fields from API response
 	applyIndexSetReadState(ctx, &plan, is)
+	resp.Diagnostics.Append(refreshIndexSetTiering(&plan, is, false)...)
 
 	// Don't materialize rotation/retention blocks if user didn't specify them
 	if !wantRotation {
@@ -575,9 +592,15 @@ func (r *indexSetResource) ImportState(ctx context.Context, req resource.ImportS
 
 	// Apply all fields from API, including rotation/retention blocks
 	applyIndexSetReadState(ctx, &data, is)
+	resp.Diagnostics.Append(refreshIndexSetTiering(&data, is, true)...)
+	if is.HasDataTiering() {
+		// These are server internals when tiering is active, not independent
+		// Terraform strategies that can be configured alongside data_tiering.
+		data.Rotation = nil
+		data.Retention = nil
+	}
 
-	// On import, always materialize rotation/retention blocks if present in API
-	// (don't apply the "had in prior state" logic used in Read)
+	// Import materializes legacy strategy blocks only when tiering is inactive.
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
@@ -705,6 +728,7 @@ func applyIndexSetReadState(ctx context.Context, data *indexSetModel, is *client
 
 // validateIndexSet performs basic checks for key fields.
 func validateIndexSet(m *indexSetModel) (d diag.Diagnostics) {
+	d.Append(validateIndexSetTiering(m)...)
 	if m.Title.IsNull() || m.Title.IsUnknown() || m.Title.ValueString() == "" {
 		d.AddAttributeError(path.Root("title"), "Invalid title", "Attribute 'title' must be a non-empty string.")
 	}

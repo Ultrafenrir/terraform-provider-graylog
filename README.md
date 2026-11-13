@@ -369,13 +369,13 @@ The provider client includes a best‑effort capability probe (cached) to detect
 
 ## Docker Compose/dev environment
 
-Use the provided `docker-compose.yml` to run a local Graylog for testing (also includes OpenSearch, MinIO and OpenLDAP for acceptance tests):
+Use the provided `docker-compose.yml` to run a local Graylog for testing (also includes OpenSearch, SeaweedFS and OpenLDAP for acceptance tests):
 
 ```bash
 make graylog-up
 make graylog-wait
-# visit http://127.0.0.1:9000 (Graylog UI/API), http://127.0.0.1:9001 (MinIO console)
-# MinIO S3 API is available at http://127.0.0.1:9002 (host port mapped to container 9000)
+# visit http://127.0.0.1:9000 (Graylog UI/API)
+# SeaweedFS S3 API is available at http://127.0.0.1:9002 (host port mapped to container 8333)
 ```
 
 Authentication defaults in examples/tests assume `admin:admin`. You can override environment variables for integration tests:
@@ -411,16 +411,16 @@ Useful commands:
 
 ### Acceptance tests (optional, opt‑in via ENV)
 
-Snapshot repositories against OpenSearch/MinIO:
+Snapshot repositories against OpenSearch/SeaweedFS:
 
 ```bash
-ENABLE_OS_SNAPSHOT_ACC=1 go test -tags=acceptance ./internal/provider -run OpenSearchSnapshotRepository
+TF_ACC=1 ENABLE_OS_SNAPSHOT_ACC=1 ENABLE_OS_S3_ACC=1 go test -tags=acceptance ./internal/provider -run OpenSearchSnapshotRepository
 ```
 
 Notes for snapshot repository acceptance:
 - OpenSearch image in this repo includes the `repository-s3` plugin (installed in `compose/opensearch/Dockerfile`).
 - Filesystem repositories require `path.repo` to include `/usr/share/opensearch/snapshots` (already set) and a bind‑mount from the host (`./compose/os_snapshots`).
-- When using the local MinIO from docker‑compose, set S3 `endpoint = "http://127.0.0.1:9002"` in examples/tests.
+- When using SeaweedFS from docker-compose, set S3 `endpoint = "http://seaweedfs:8333"`: the request originates in OpenSearch, not Terraform. The `tf-snapshots` bucket is created automatically with test credentials `snapshot-test` / `snapshot-test-secret`.
 
 LDAP group members against OpenLDAP:
 

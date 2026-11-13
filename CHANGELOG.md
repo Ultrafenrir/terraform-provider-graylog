@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `graylog_index_set`: added optional `data_tiering` JSON configuration for hot-only Data Tiering and `use_legacy_rotation` mode selection (Graylog 6+). Tiering updates are in place, refresh detects managed lifetime changes, and import adopts existing tiering. Updates preserve the full server tiering document when these settings are unmanaged, including explicit `false` mode selection on PUT. Existing Graylog 5 configurations continue to omit these fields.
+
 - `graylog_index_set`: added explicit support and documentation for Graylog 5.1+'s `TimeBasedSizeOptimizingStrategy` with `index_lifetime_min` and `index_lifetime_max` configuration. The compatibility matrix now runs the strategy test without skips on the latest stable patch releases for each supported major line: Graylog 5.2.12, 6.3.15, and 7.1.9.
 - `graylog_index_set`: creation now waits for Graylog's own index-set initializer to make the deflector healthy and point it to a concrete write index before returning. The provider does not issue manual cycle requests, avoiding races and duplicate allocation work with Graylog's background initializer. Acceptance coverage creates eight index-set/stream pairs concurrently, verifies every live deflector, and confirms that every live stream points to its paired index set.
 - `graylog_user`: an explicit `disabled = true` is now applied through Graylog's status endpoint during creation, eliminating the one-time `false -> true` diff on the next apply.
