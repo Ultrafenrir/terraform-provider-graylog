@@ -214,7 +214,7 @@ Combine with LDAP sync for complete automated RBAC.
 
 ## Supported Resources & Data Sources
 
-### Resources (24)
+### Resources (25)
 **Core Infrastructure:**
 - `graylog_stream` — Streams with routing rules
 - `graylog_input` — Inputs (Kafka, Syslog, GELF, Beats, etc.) with extractors
@@ -223,6 +223,7 @@ Combine with LDAP sync for complete automated RBAC.
 - `graylog_pipeline_rule` — Pipeline rules
 - `graylog_pipeline_connection` — Pipeline-to-stream connections
 - `graylog_index_set` — Index set configuration
+- `graylog_index_set_field_type_profile` — Reusable custom field type mappings and index-set assignment (verified on Graylog 7.2.2)
 - `graylog_dashboard` — Classic dashboards
 - `graylog_dashboard_widget` — Dashboard widgets
 

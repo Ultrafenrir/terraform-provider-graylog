@@ -1719,6 +1719,8 @@ type IndexSet struct {
 	// including tier types this provider does not expose for configuration.
 	DataTiering              json.RawMessage `json:"data_tiering,omitempty"`
 	UseLegacyRotation        *bool           `json:"use_legacy_rotation,omitempty"`
+	// nil preserves the binding on update; a pointer to an empty string detaches.
+	FieldTypeProfile         *string          `json:"field_type_profile,omitempty"`
 	IndexAnalyzer            string          `json:"index_analyzer,omitempty"`
 	FieldTypeRefreshInterval int             `json:"field_type_refresh_interval,omitempty"`
 	Default                  bool            `json:"default,omitempty"`
@@ -1766,6 +1768,9 @@ func (is *IndexSet) HasDataTiering() bool {
 func (c *Client) CreateIndexSet(is *IndexSet) (*IndexSet, error) {
 	if c.APIVersion == APIV5 && (is.HasDataTiering() || is.UseLegacyRotation != nil) {
 		return nil, fmt.Errorf("index set data tiering requires Graylog 6 or later")
+	}
+	if c.APIVersion == APIV5 && is.FieldTypeProfile != nil {
+		return nil, fmt.Errorf("index set field type profiles require Graylog 6 or later")
 	}
 	// Some Graylog/OpenSearch setups require a non-null index analyzer. Use a safe default
 	// if not provided explicitly to keep compatibility across Graylog v5/v6/v7.
@@ -1949,6 +1954,9 @@ func (c *Client) CreateIndexSet(is *IndexSet) (*IndexSet, error) {
 	if is.UseLegacyRotation != nil {
 		body.(map[string]any)["use_legacy_rotation"] = *is.UseLegacyRotation
 	}
+	if is.FieldTypeProfile != nil && *is.FieldTypeProfile != "" {
+		body.(map[string]any)["field_type_profile"] = *is.FieldTypeProfile
+	}
 	resp, err := c.doRequest("POST", path, body)
 	if err != nil {
 		return nil, err
@@ -2043,6 +2051,9 @@ func (c *Client) UpdateIndexSet(id string, is *IndexSet) (*IndexSet, error) {
 	if c.APIVersion == APIV5 && (is.HasDataTiering() || is.UseLegacyRotation != nil) {
 		return nil, fmt.Errorf("index set data tiering requires Graylog 6 or later")
 	}
+	if c.APIVersion == APIV5 && is.FieldTypeProfile != nil {
+		return nil, fmt.Errorf("index set field type profiles require Graylog 6 or later")
+	}
 	// Graylog API для index sets требует PUT с полным телом объекта
 	// Сначала получаем текущее состояние, затем обновляем нужные поля
 	path := fmt.Sprintf("/api/system/indices/index_sets/%s", id)
@@ -2082,6 +2093,9 @@ func (c *Client) UpdateIndexSet(id string, is *IndexSet) (*IndexSet, error) {
 		current.UseLegacyRotation = &useLegacy
 	}
 
+	if is.FieldTypeProfile != nil {
+		current.FieldTypeProfile = is.FieldTypeProfile
+	}
 	// Обновляем стратегии если они заданы
 	if is.RotationStrategyClass != "" {
 		current.RotationStrategyClass = is.RotationStrategyClass
@@ -2156,7 +2170,20 @@ func (c *Client) UpdateIndexSet(id string, is *IndexSet) (*IndexSet, error) {
 
 	// Формируем полное тело запроса со всеми полями
 	// Важно: используем текущий объект целиком для PUT
-	resp, err := c.doRequest("PUT", path, current)
+	var body any = current
+	if current.FieldTypeProfile != nil && *current.FieldTypeProfile == "" {
+		raw, err := json.Marshal(current)
+		if err != nil {
+			return nil, err
+		}
+		var document map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &document); err != nil {
+			return nil, err
+		}
+		document["field_type_profile"] = json.RawMessage("null")
+		body = document
+	}
+	resp, err := c.doRequest("PUT", path, body)
 	if err != nil {
 		return nil, err
 	}

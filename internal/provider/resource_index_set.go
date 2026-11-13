@@ -41,6 +41,7 @@ type indexSetModel struct {
 	Retention         *strategyModel `tfsdk:"retention"`
 	DataTiering       types.String   `tfsdk:"data_tiering"`
 	UseLegacyRotation types.Bool     `tfsdk:"use_legacy_rotation"`
+	FieldTypeProfile  types.String   `tfsdk:"field_type_profile"`
 	Default           types.Bool     `tfsdk:"default"`
 	Timeouts          timeouts.Value `tfsdk:"timeouts"`
 }
@@ -160,6 +161,11 @@ func (r *indexSetResource) Schema(ctx context.Context, _ resource.SchemaRequest,
 			"use_legacy_rotation": schema.BoolAttribute{
 				Optional:    true,
 				Description: "Set false with data_tiering to enable data tiering, or true without data_tiering to switch to legacy rotation (Graylog 6+). Omit both attributes to preserve existing server settings.",
+			},
+			"field_type_profile": schema.StringAttribute{
+				Optional:    true,
+				Description: "Field type profile ID. Omit to preserve the server binding; set an empty string to detach. Changes apply to future indices; the provider does not rotate existing indices.",
+				Validators:  []validator.String{stringvalidator.RegexMatches(regexp.MustCompile(`^([0-9a-fA-F]{24})?$`), "must be a 24-character Mongo ObjectID or an empty string to detach")},
 			},
 			"timeouts": timeouts.Attributes(ctx, timeouts.Opts{Create: true, Update: true, Delete: true}),
 		},
@@ -309,6 +315,7 @@ func (r *indexSetResource) Create(ctx context.Context, req resource.CreateReques
 		RetentionStrategyClass:          getStrategyClass(data.Retention),
 		RetentionStrategyConfig:         mapFromStringMap(ctx, data.Retention),
 		DataTiering:                     indexSetTieringJSON(data.DataTiering),
+		FieldTypeProfile:                indexSetProfileBinding(data.FieldTypeProfile),
 		UseLegacyRotation:               indexSetLegacyRotation(data.UseLegacyRotation),
 		Default:                         data.Default.ValueBool(),
 	})
@@ -490,6 +497,7 @@ func (r *indexSetResource) Update(ctx context.Context, req resource.UpdateReques
 		RetentionStrategyClass:          getStrategyClass(plan.Retention),
 		RetentionStrategyConfig:         mapFromStringMap(ctx, plan.Retention),
 		DataTiering:                     indexSetTieringJSON(plan.DataTiering),
+		FieldTypeProfile:                indexSetProfileBinding(plan.FieldTypeProfile),
 		UseLegacyRotation:               indexSetLegacyRotation(plan.UseLegacyRotation),
 		Default:                         plan.Default.ValueBool(),
 	})
@@ -600,6 +608,9 @@ func (r *indexSetResource) ImportState(ctx context.Context, req resource.ImportS
 		data.Retention = nil
 	}
 
+	if is.FieldTypeProfile != nil {
+		data.FieldTypeProfile = types.StringValue(*is.FieldTypeProfile)
+	}
 	// Import materializes legacy strategy blocks only when tiering is inactive.
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
@@ -724,6 +735,23 @@ func applyIndexSetReadState(ctx context.Context, data *indexSetModel, is *client
 		}
 	}
 	data.Default = types.BoolValue(is.Default)
+	// An omitted binding is unmanaged. Managed bindings must track both switches
+	// and external detachments so refresh can detect drift.
+	if !data.FieldTypeProfile.IsNull() {
+		profile := ""
+		if is.FieldTypeProfile != nil {
+			profile = *is.FieldTypeProfile
+		}
+		data.FieldTypeProfile = types.StringValue(profile)
+	}
+}
+
+func indexSetProfileBinding(value types.String) *string {
+	if value.IsNull() || value.IsUnknown() {
+		return nil
+	}
+	profile := value.ValueString()
+	return &profile
 }
 
 // validateIndexSet performs basic checks for key fields.
