@@ -1,3 +1,10 @@
+---
+page_title: "graylog_pipeline_connection Resource - Graylog Terraform Provider"
+subcategory: "Pipelines"
+description: |-
+  Manages the pipelines connected to a Graylog stream.
+---
+
 # graylog_pipeline_connection (Resource)
 
 Manages the set of pipelines connected to a stream. The resource owns the **full** connection list for its stream: applying it replaces whatever pipelines were connected to that stream before, and destroying it disconnects all pipelines from the stream.

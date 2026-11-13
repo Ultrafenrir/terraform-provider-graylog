@@ -1,5 +1,6 @@
 ---
 page_title: "graylog_users Data Source - Graylog"
+subcategory: "Users & Security"
 description: |-
   Lists Graylog users and provides both full item objects and a username→id map for convenient lookups.
 ---

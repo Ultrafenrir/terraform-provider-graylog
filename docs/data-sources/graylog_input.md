@@ -1,5 +1,6 @@
 ---
 page_title: "graylog_input Data Source - Graylog"
+subcategory: "Inputs & Outputs"
 description: |-
   Retrieves a Graylog input by filters (e.g., by title).
 ---

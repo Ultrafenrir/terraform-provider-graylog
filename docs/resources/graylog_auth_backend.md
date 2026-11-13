@@ -1,3 +1,10 @@
+---
+page_title: "graylog_auth_backend Resource - Graylog Terraform Provider"
+subcategory: "Users & Security"
+description: |-
+  Manages a Graylog LDAP or Active Directory authentication backend.
+---
+
 # graylog_auth_backend (Resource)
 
 Manages a Graylog authentication service backend — LDAP or Active Directory — via `/system/authentication/services/backends`.

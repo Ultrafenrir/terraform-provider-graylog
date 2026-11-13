@@ -1,5 +1,6 @@
 ---
 page_title: "graylog_dashboards Data Source - Graylog"
+subcategory: "Dashboards"
 description: |-
   Lists Graylog classic dashboards and provides both full item objects and a title→id map.
 ---

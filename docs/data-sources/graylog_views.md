@@ -1,5 +1,6 @@
 ---
 page_title: "graylog_views Data Source - Graylog"
+subcategory: "Dashboards"
 description: |-
   Lists Graylog Views and provides both full item objects and a title→id map for convenient lookups.
 ---

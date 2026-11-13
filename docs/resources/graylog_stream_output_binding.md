@@ -7,12 +7,12 @@ description: |-
 
 # graylog_stream_output_binding (Resource)
 
-Binding resource that attaches an existing Output to an existing Stream. This is useful when вы хотите управлять связью независимо от ресурсов `graylog_stream` и `graylog_output`.
+Attaches an existing output to an existing stream. Use this resource to manage the relationship independently from `graylog_stream` and `graylog_output`.
 
 Diff-aware behavior:
-- Create: выполняет attach только если связь ещё не существует (идемпотентно).
-- Update: при изменении пары `stream_id`/`output_id` сначала прикрепляет новую связь, затем аккуратно удаляет старую — только если она существует (минимальные операции).
-- Delete: выполняет detach только при наличии связи (no-op, если уже удалена вне Terraform).
+- Create attaches the output only when the relationship does not already exist.
+- Update attaches the new `stream_id`/`output_id` pair before removing the old relationship, if it still exists.
+- Delete detaches only an existing relationship and is a no-op when it was removed outside Terraform.
 
 ## Example Usage
 
@@ -25,21 +25,21 @@ resource "graylog_stream_output_binding" "example" {
 
 ## Argument Reference
 
-- `stream_id` (Required, String) — ID потока (Stream), к которому прикрепляется Output.
-- `output_id` (Required, String) — ID аутпута (Output), который прикрепляется к Stream.
+- `stream_id` (String, Required) — ID of the stream receiving the output.
+- `output_id` (String, Required) — ID of the output attached to the stream.
 
 ## Attribute Reference
 
-- `id` (String) — синтетический ID в формате `stream_id/output_id`.
+- `id` (String) — Synthetic ID in `stream_id/output_id` format.
 
 ## Import
 
-Можно импортировать существующую привязку по составному идентификатору `stream_id/output_id` (или `stream_id:output_id`):
+Import an existing relationship with `stream_id/output_id` or `stream_id:output_id`:
 
 ```bash
 terraform import graylog_stream_output_binding.example <stream_id>/<output_id>
-# или
+# or
 terraform import graylog_stream_output_binding.example <stream_id>:<output_id>
 ```
 
-Если указать только `id` одного из ресурсов — импорт завершится ошибкой. При удалении связи вне Terraform ресурс будет помечен как удалённый при следующем `terraform plan/apply`.
+An identifier containing only one resource ID is rejected. If the relationship is removed outside Terraform, the next refresh removes this resource from state.

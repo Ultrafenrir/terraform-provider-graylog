@@ -1,5 +1,6 @@
 ---
 page_title: "graylog_stream Data Source - Graylog"
+subcategory: "Streams"
 description: |-
   Retrieves a Graylog stream by filters (e.g., by title).
 ---

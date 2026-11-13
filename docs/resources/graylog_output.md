@@ -2,16 +2,16 @@
 page_title: "graylog_output Resource - Graylog Terraform Provider"
 subcategory: "Inputs & Outputs"
 description: |-
-  Terraform Graylog provider: manage Graylog outputs and attach them to streams (automation/IaC). Keywords: terraform graylog provider, graylog terraform, terraform graylog, graylog automation, Graylog operation automation. Управляет Output в Graylog и его привязками к Stream’ам.
+  Manages a Graylog output and its stream attachments.
 ---
 
-# graylog_output
+# graylog_output (Resource)
 
-Ресурс создает/обновляет Output в Graylog и позволяет привязать его к одному или нескольким Stream. Входит в Graylog Terraform Provider для автоматизации операций с Graylog.
+Creates or updates a Graylog output and optionally attaches it to one or more streams.
 
 ## Example Usage
 
-```
+```hcl
 data "graylog_index_set_default" "this" {}
 
 resource "graylog_stream" "s" {
@@ -33,17 +33,17 @@ resource "graylog_output" "gelf" {
 
 ## Argument Reference
 
-- `title` — (Required) Название Output.
-- `type` — (Required) Тип Output (FQCN класса в Graylog), например `org.graylog2.outputs.GelfOutput`.
-- `configuration` — (Optional) Конфигурация Output в виде JSON-строки (`jsonencode({...})`).
-- `streams` — (Optional) Список ID стримов, к которым нужно прикрепить этот Output.
+- `title` (String, Required) — Output title.
+- `type` (String, Required) — Fully qualified Graylog output class, such as `org.graylog2.outputs.GelfOutput`.
+- `configuration` (String, Optional) — JSON-encoded output configuration, typically produced with `jsonencode`.
+- `streams` (List of String, Optional) — Stream IDs to which the output is attached.
 
 ## Attributes Reference
 
-- `id` — идентификатор Output.
+- `id` (String) — Output ID.
 
 ## Import
 
-```
+```shell
 terraform import graylog_output.gelf <output_id>
 ```

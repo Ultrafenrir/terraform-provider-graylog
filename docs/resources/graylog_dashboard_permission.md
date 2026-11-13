@@ -7,9 +7,9 @@ description: |-
 
 # graylog_dashboard_permission (Resource)
 
-Ресурс для управления правами доступа к Dashboard через роль. Он добавляет/удаляет у роли только разрешения конкретного дашборда, не затрагивая прочие права роли.
+Manages role-based access to a dashboard. The resource adds or removes permissions for only the selected dashboard and leaves the role's other permissions unchanged.
 
-> Capability note: для создания/обновления требуется поддержка классических (legacy) dashboards CRUD/permissions. На образах/версиях без legacy‑дашбордов операции завершатся понятной ошибкой. См. таблицу совместимости в `docs/index.md`.
+> Capability note: create and update require classic dashboard CRUD and permission APIs. On images without legacy dashboard support, the provider fails early with a clear error. See the compatibility table in the provider overview.
 
 ## Example Usage
 
@@ -23,24 +23,25 @@ resource "graylog_dashboard_permission" "d_readwrite" {
 
 ## Argument Reference
 
-- `role_name` (Required, String) — имя роли, к которой применяются права.
-- `dashboard_id` (Required, String) — ID дашборда.
-- `actions` (Optional, List(String)) — список действий: `read`, `edit`, `share`. По умолчанию `["read"]`.
+- `role_name` (String, Required) — Name of the role receiving the permissions.
+- `dashboard_id` (String, Required) — Dashboard ID.
+- `actions` (List of String, Optional) — Any of `read`, `edit`, and `share`. Defaults to `["read"]`.
 
 ## Attribute Reference
 
-- `id` (String) — синтетический ID в формате `role_name/dashboard_id`.
+- `id` (String) — Synthetic ID in `role_name/dashboard_id` format.
 
 ## Import
 
-Импорт по составному идентификатору `role_name/dashboard_id` (или `role_name:dashboard_id`):
+Import with the composite identifier `role_name/dashboard_id` or `role_name:dashboard_id`:
 
 ```bash
 terraform import graylog_dashboard_permission.d_readwrite Reader/5f1e7d1c2a3b4c5d6e7f8a9b
-# или
+# or
 terraform import graylog_dashboard_permission.d_readwrite Reader:5f1e7d1c2a3b4c5d6e7f8a9b
 ```
 
-Примечания
-- Ресурс управляет только правами конкретного `dashboard_id` у роли, оставляя остальные разрешения роли без изменений.
-- Формат прав, выставляемых провайдером: `dashboards:<action>:<dashboard_id>`.
+## Notes
+
+- The resource manages only permissions for the selected `dashboard_id`; all other role permissions remain unchanged.
+- Permissions written by the provider use `dashboards:<action>:<dashboard_id>` format.

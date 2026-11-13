@@ -347,7 +347,7 @@ terraform {
   required_providers {
     graylog = {
       source  = "Ultrafenrir/graylog"
-      version = "~> 0.3"
+      version = "~> 0.5"
     }
     aws = {
       source  = "hashicorp/aws"

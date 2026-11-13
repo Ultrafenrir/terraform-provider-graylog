@@ -2,18 +2,18 @@
 page_title: "graylog_ldap_setting Resource - Graylog Terraform Provider"
 subcategory: "Users & Security"
 description: |-
-  Terraform Graylog provider: manage global LDAP settings in Graylog (singleton). Keywords: terraform graylog provider, graylog terraform, terraform graylog, graylog automation, Graylog operation automation. Управляет глобальными настройками LDAP в Graylog (singleton ресурс).
+  Manages legacy global LDAP settings in Graylog as a singleton resource.
 ---
 
-# graylog_ldap_setting
+# graylog_ldap_setting (Resource)
 
 > **Deprecated.** This resource targets the pre-4.0 `/system/ldap/settings` endpoint, which Graylog no longer serves. Use [graylog_auth_backend](graylog_auth_backend) together with [graylog_auth_backend_activation](graylog_auth_backend_activation) instead.
 
-Ресурс управляет глобальными настройками LDAP в Graylog. Это одиночный ресурс (singleton).
+Manages the legacy global LDAP settings in Graylog. This is a singleton resource.
 
 ## Example Usage
 
-```
+```hcl
 resource "graylog_ldap_setting" "this" {
   enabled       = false
   ldap_uri      = "ldap://ldap.example.org:389"
@@ -24,28 +24,28 @@ resource "graylog_ldap_setting" "this" {
 
 ## Argument Reference
 
-- `enabled` — (Optional) Включить LDAP-аутентификацию.
-- `system_username` — (Optional) Bind DN / системное имя пользователя.
-- `system_password` — (Optional, Sensitive) Пароль для bind.
-- `ldap_uri` — (Optional) URI LDAP.
-- `search_base` — (Optional) Базовый DN для поиска пользователей.
-- `search_pattern` — (Optional) Паттерн поиска пользователей.
-- `user_unique_id_attribute` — (Optional) Атрибут уникального идентификатора.
-- `group_search_base` — (Optional) Базовый DN для поиска групп.
-- `group_search_pattern` — (Optional) Паттерн поиска групп.
-- `default_group` — (Optional) Группа по умолчанию в Graylog.
-- `use_start_tls` — (Optional) Использовать STARTTLS.
-- `trust_all_certificates` — (Optional) Доверять всем сертификатам.
-- `active_directory` — (Optional) Режим Active Directory.
-- `display_name_attribute` — (Optional) Атрибут отображаемого имени.
-- `email_attribute` — (Optional) Атрибут email.
+- `enabled` (Boolean, Optional) — Enables LDAP authentication.
+- `system_username` (String, Optional) — Bind DN or system username.
+- `system_password` (String, Optional, Sensitive) — Bind password.
+- `ldap_uri` (String, Optional) — LDAP server URI.
+- `search_base` (String, Optional) — Base DN for user searches.
+- `search_pattern` (String, Optional) — User search pattern.
+- `user_unique_id_attribute` (String, Optional) — Attribute containing the unique user identifier.
+- `group_search_base` (String, Optional) — Base DN for group searches.
+- `group_search_pattern` (String, Optional) — Group search pattern.
+- `default_group` (String, Optional) — Default Graylog group.
+- `use_start_tls` (Boolean, Optional) — Enables STARTTLS.
+- `trust_all_certificates` (Boolean, Optional) — Trusts all LDAP server certificates.
+- `active_directory` (Boolean, Optional) — Enables Active Directory mode.
+- `display_name_attribute` (String, Optional) — Attribute containing the display name.
+- `email_attribute` (String, Optional) — Attribute containing the email address.
 
 ## Attributes Reference
 
-- `id` — фиксированное значение `ldap`.
+- `id` (String) — Fixed to `ldap`.
 
 ## Import
 
-```
+```shell
 terraform import graylog_ldap_setting.this ldap
 ```

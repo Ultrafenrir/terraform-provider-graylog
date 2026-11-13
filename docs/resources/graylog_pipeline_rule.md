@@ -1,3 +1,10 @@
+---
+page_title: "graylog_pipeline_rule Resource - Graylog Terraform Provider"
+subcategory: "Pipelines"
+description: |-
+  Manages a Graylog pipeline rule.
+---
+
 # graylog_pipeline_rule (Resource)
 
 Manages a Graylog pipeline rule. Pipelines reference rules by the name declared in the rule source, so create rules with this resource and reference them from the `source` of a `graylog_pipeline`.

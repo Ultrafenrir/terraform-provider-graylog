@@ -1,5 +1,6 @@
 ---
 page_title: "graylog_event_notifications Data Source - Graylog"
+subcategory: "Alerts & Events"
 description: |-
   Lists Graylog event notifications and provides both full item objects and a title→id map.
 ---

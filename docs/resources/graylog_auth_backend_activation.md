@@ -1,3 +1,10 @@
+---
+page_title: "graylog_auth_backend_activation Resource - Graylog Terraform Provider"
+subcategory: "Users & Security"
+description: |-
+  Selects the active authentication backend for a Graylog cluster.
+---
+
 # graylog_auth_backend_activation (Resource)
 
 Selects the cluster's active authentication backend, via `/system/authentication/services/configuration`.

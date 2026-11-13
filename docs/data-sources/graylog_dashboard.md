@@ -1,5 +1,6 @@
 ---
 page_title: "graylog_dashboard Data Source - Graylog"
+subcategory: "Dashboards"
 description: |-
   Lookup a Graylog classic dashboard by ID.
 ---

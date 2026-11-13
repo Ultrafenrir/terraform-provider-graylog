@@ -1,6 +1,6 @@
 ---
 page_title: "graylog_alert Resource - Graylog Terraform Provider"
-subcategory: "Alerts & Events / Resources"
+subcategory: "Alerts & Events"
 description: |-
   Terraform Graylog provider: manage Graylog alerts (Event Definitions) with flexible config and notifications (automation/IaC). Keywords: terraform graylog provider, graylog terraform, terraform graylog, graylog automation, Graylog operation automation.
 ---

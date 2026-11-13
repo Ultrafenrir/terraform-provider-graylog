@@ -1,5 +1,6 @@
 ---
 page_title: "graylog_index_sets Data Source - Graylog"
+subcategory: "Index Sets"
 description: |-
   Lists Graylog index sets and provides both full item objects and a title→id map.
 ---

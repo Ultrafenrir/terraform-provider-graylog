@@ -28,7 +28,7 @@ terraform {
   required_providers {
     graylog = {
       source  = "Ultrafenrir/graylog"
-      version = "~> 0.3"
+      version = "~> 0.5"
     }
   }
 }
@@ -81,7 +81,7 @@ terraform {
   required_providers {
     graylog = {
       source  = "Ultrafenrir/graylog"
-      version = "~> 0.3"
+      version = "~> 0.5"
     }
   }
 }
@@ -222,7 +222,7 @@ Combine with LDAP sync for complete automated RBAC.
 - `graylog_pipeline` — Processing pipelines
 - `graylog_pipeline_rule` — Pipeline rules
 - `graylog_pipeline_connection` — Pipeline-to-stream connections
-- `graylog_index_set` — Index set configuration
+- `graylog_index_set` — Index set configuration, including legacy rotation and hot-only Data Tiering
 - `graylog_index_set_field_type_profile` — Reusable custom field type mappings and index-set assignment (verified on Graylog 7.2.2)
 - `graylog_dashboard` — Classic dashboards
 - `graylog_dashboard_widget` — Dashboard widgets
@@ -360,7 +360,7 @@ output "streams_map" {
 }
 ```
 
-See `docs/data-sources/` for each data source reference. New in this version:
+See `docs/data-sources/` for each data source reference, including:
 
 - `graylog_ldap_group_members` — read‑only LDAP group listing for safe automation.
 
@@ -393,22 +393,22 @@ Useful commands:
 
 ### Compose project name and cleanup
 
-- Тестовые таргеты больше не переопределяют `COMPOSE_PROJECT_NAME` — используется дефолтное имя проекта Docker Compose (имя каталога репозитория). Поэтому обычная команда ниже в корне репозитория корректно останавливает все сервисы, поднятые тестами/таргетами Makefile:
+- Test targets use Docker Compose's default project name (the repository directory name) and do not override `COMPOSE_PROJECT_NAME`. Run either command below from the repository root to stop services started by the Makefile targets:
 
   ```bash
   docker-compose down -v
-  # или
+  # or
   docker compose down -v
   ```
 
-- Если у вас остались «хвосты» от более старых прогонов с именем проекта `tf-graylog`, выполните:
+- To remove containers and volumes left by runs that used the legacy `tf-graylog` project name:
 
   ```bash
-  # Полная очистка для текущего дефолтного проекта и legacy-проекта tf-graylog
+  # Clean the current default project and the legacy tf-graylog project
   make graylog-clean
   ```
 
-  Цель `graylog-clean` выполняет `down -v --remove-orphans` как для дефолтного имени проекта, так и с флагом `-p tf-graylog`.
+  The `graylog-clean` target runs `down -v --remove-orphans` for both the default project name and `-p tf-graylog`.
 
 ### Acceptance tests (optional, opt‑in via ENV)
 
@@ -490,4 +490,4 @@ Notes:
 
 - GitHub Actions build and publish artifacts on tags matching `v*`.
 - Artifacts include platform zips, `SHA256SUMS` and `SHA256SUMS.sig` signed with your GPG key.
-- To publish a new version: push a tag, for example `git tag v0.1.0 && git push origin v0.1.0`.
+- To publish a new version, push a valid SemVer tag, for example `git tag v1.2.3 && git push origin v1.2.3`.

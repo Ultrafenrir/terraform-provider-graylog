@@ -7,11 +7,6 @@ Graylog OSS does not include built‑in "stream backups" or a one‑click "LDAP 
 
 Search hints (SEO): graylog stream backups, graylog backups, graylog OpenSearch snapshots, graylog ldap integration, graylog sync ldap groups to graylog, graylog ldap groups sync, graylog user sync ldap.
 
-## What's new in 0.3.0
-
-- OpenSearch snapshot repositories to enable backups of data written by your Streams (index snapshots). See resource: [graylog_opensearch_snapshot_repository](resources/graylog_opensearch_snapshot_repository).
-- LDAP group members data source to safely drive user sync/role mapping from your directory. See data source: [graylog_ldap_group_members](data-sources/graylog_ldap_group_members).
-
 Import supports IDs and readable keys where applicable. The provider recognizes UUID and 24-hex (Mongo ObjectID) automatically. For titles, you may also use the explicit `title:` prefix.
 
 Supported import shortcuts:
@@ -50,8 +45,8 @@ If multiple resources share the same title, import by ID to disambiguate.
   - Resources: [graylog_input](resources/graylog_input), [graylog_output](resources/graylog_output)
   - Data sources: [graylog_input](data-sources/graylog_input), [graylog_inputs](data-sources/graylog_inputs)
 - Index Sets
-  - Resources: [graylog_index_set](resources/graylog_index_set)
-  - Data sources: [graylog_index_set](data-sources/graylog_index_set), [graylog_index_set_default](data-sources/graylog_index_set_default), [graylog_index_sets](data-sources/graylog_index_sets_list)
+  - Resources: [graylog_index_set](resources/graylog_index_set), [graylog_index_set_field_type_profile](resources/graylog_index_set_field_type_profile)
+  - Data sources: [graylog_index_set](data-sources/graylog_index_set), [graylog_index_set_default](data-sources/graylog_index_set_default), [graylog_index_sets](data-sources/graylog_index_sets)
 - Pipelines
   - Resources: [graylog_pipeline](resources/graylog_pipeline), [graylog_pipeline_rule](resources/graylog_pipeline_rule), [graylog_pipeline_connection](resources/graylog_pipeline_connection)
 - Lookup Tables
@@ -61,7 +56,7 @@ If multiple resources share the same title, import by ID to disambiguate.
   - Data sources: [graylog_dashboard](data-sources/graylog_dashboard), [graylog_dashboards](data-sources/graylog_dashboards), [graylog_views](data-sources/graylog_views)
 - Alerts & Events
   - Resources: [graylog_alert](resources/graylog_alert), [graylog_event_notification](resources/graylog_event_notification)
-  - Data sources: [graylog_event_notification](data-sources/graylog_event_notification), [graylog_event_notifications](data-sources/graylog_event_notifications_list)
+  - Data sources: [graylog_event_notification](data-sources/graylog_event_notification), [graylog_event_notifications](data-sources/graylog_event_notifications)
 - Users & Security
   - Resources: [graylog_user](resources/graylog_user), [graylog_role](resources/graylog_role), [graylog_auth_backend](resources/graylog_auth_backend), [graylog_auth_backend_activation](resources/graylog_auth_backend_activation), [graylog_ldap_setting](resources/graylog_ldap_setting)
   - Data sources: [graylog_user](data-sources/graylog_user), [graylog_users](data-sources/graylog_users), [graylog_role](data-sources/graylog_role), [graylog_ldap_group_members](data-sources/graylog_ldap_group_members)
@@ -69,6 +64,8 @@ If multiple resources share the same title, import by ID to disambiguate.
   - Resources: [graylog_cluster_config](resources/graylog_cluster_config)
 - OpenSearch & Backups
   - Resources: [graylog_opensearch_snapshot_repository](resources/graylog_opensearch_snapshot_repository)
+
+Release history and upgrade notes are available on the [GitHub Releases page](https://github.com/Ultrafenrir/terraform-provider-graylog/releases).
 
 ## Environment variables (all supported)
 
@@ -139,6 +136,8 @@ The following matrix summarizes typical availability across common OSS images. A
 | Feature / Resource(s) | Graylog 5.x | Graylog 6.x | Graylog 7.x |
 |---|---|---|---|
 | Streams, Index Sets (`graylog_stream`, `graylog_index_set`, permissions for streams) | Yes | Yes | Yes |
+| Hot-only Data Tiering (`graylog_index_set.data_tiering`) | No | Yes | Yes |
+| Field Type Profiles (`graylog_index_set_field_type_profile`) | No | API-dependent | Yes, when the mapping profiles API is exposed |
 | Event Notifications (`graylog_event_notification`, data sources) | Varies (often missing) | Usually available | Available |
 | Classic Dashboards CRUD (`graylog_dashboard`, `graylog_dashboard_widget`, `graylog_dashboard_permission`) | Often unavailable | Often unavailable | Varies by image (available on images exposing legacy dashboards) |
 

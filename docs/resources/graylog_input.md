@@ -83,13 +83,10 @@ inputs (`org.graylog.plugins.cef.input.CEFKafkaInput`, `org.graylog2.inputs.sysl
 shape below, plus their own codec-specific fields.
 
 **These field names were verified live against Graylog 5.0.13, 6.0.14, and 7.0.10** via
-`GET /api/system/inputs/types/org.graylog2.inputs.raw.kafka.RawKafkaInput` on each — the schema is
-identical across all three (same fields, same requiredness), with one behavioral difference noted
-below (`legacy_mode`'s default). An earlier version of this doc (and `examples/inputs/kafka_raw.tf`)
-documented a different, incorrect key set (`bootstrap_servers` as a list, `topics`,
-`security_protocol`, `ssl_truststore_location`, `sasl_mechanism`, etc.) that Graylog's native Kafka
-input has never supported on any of these versions — those keys were silently ignored by the
-backend and had no effect. If you used any of those keys, switch to the fields below.
+`GET /api/system/inputs/types/org.graylog2.inputs.raw.kafka.RawKafkaInput` on each. The schema is
+identical across all three (same fields and requiredness), with one behavioral difference noted
+below (`legacy_mode`'s default). Use the native field names documented below. Kafka client options
+such as SSL and SASL settings belong in `custom_properties` and use Kafka's dotted property names.
 
 ### Connection / consumer
 - `legacy_mode` (bool, optional) — `true` uses the old ZooKeeper-based consumer API (pre-Graylog 3.3) and ignores `bootstrap_server`/`custom_properties` entirely. **Always set this explicitly to `false`** to use the modern Kafka client — required for `bootstrap_server` and any SSL/SASL settings in `custom_properties` to take effect. Its default differs by version — `true` on Graylog 5.x/6.x, `false` on 7.x (verified live) — so don't rely on the default either way; set it explicitly. Forgetting this is the most common way for Kafka SSL/SASL configuration to appear to do nothing.

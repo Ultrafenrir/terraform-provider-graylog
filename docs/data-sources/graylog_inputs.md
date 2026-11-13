@@ -1,5 +1,6 @@
 ---
 page_title: "graylog_inputs Data Source - Graylog"
+subcategory: "Inputs & Outputs"
 description: |-
   Lists Graylog inputs and provides both full item objects and a title→id map for convenient lookups.
 ---

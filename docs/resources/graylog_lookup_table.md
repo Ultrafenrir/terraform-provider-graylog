@@ -1,3 +1,10 @@
+---
+page_title: "graylog_lookup_table Resource - Graylog Terraform Provider"
+subcategory: "Lookup Tables"
+description: |-
+  Manages a Graylog lookup table and its cache and data adapter bindings.
+---
+
 # graylog_lookup_table (Resource)
 
 Manages a Graylog lookup table, which binds a [cache](graylog_lookup_cache) and a [data adapter](graylog_lookup_adapter) under the name that pipeline rules resolve with `lookup()` and `lookup_value()`.

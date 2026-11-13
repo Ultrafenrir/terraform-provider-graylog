@@ -1,5 +1,6 @@
 ---
 page_title: "graylog_event_notification Data Source - Graylog"
+subcategory: "Alerts & Events"
 description: |-
   Lookup a Graylog Event Notification by ID.
 ---

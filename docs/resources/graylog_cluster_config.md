@@ -1,3 +1,10 @@
+---
+page_title: "graylog_cluster_config Resource - Graylog Terraform Provider"
+subcategory: "Cluster Configuration"
+description: |-
+  Manages a document in the Graylog cluster configuration store.
+---
+
 # graylog_cluster_config (Resource)
 
 Manages a document in Graylog's cluster configuration store (`/system/cluster_config/{class}`).

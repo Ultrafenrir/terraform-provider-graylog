@@ -1,3 +1,10 @@
+---
+page_title: "graylog_lookup_cache Resource - Graylog Terraform Provider"
+subcategory: "Lookup Tables"
+description: |-
+  Manages a Graylog lookup cache.
+---
+
 # graylog_lookup_cache (Resource)
 
 Manages a Graylog lookup cache, the caching half of a [lookup table](graylog_lookup_table).

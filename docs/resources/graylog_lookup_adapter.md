@@ -1,3 +1,10 @@
+---
+page_title: "graylog_lookup_adapter Resource - Graylog Terraform Provider"
+subcategory: "Lookup Tables"
+description: |-
+  Manages a Graylog lookup data adapter.
+---
+
 # graylog_lookup_adapter (Resource)
 
 Manages a Graylog lookup data adapter, the backing data source of a [lookup table](graylog_lookup_table).

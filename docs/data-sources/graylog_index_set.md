@@ -1,5 +1,6 @@
 ---
 page_title: "graylog_index_set Data Source - Graylog Terraform Provider"
+subcategory: "Index Sets"
 description: |-
   Terraform Graylog provider: retrieve Graylog index sets by filters (e.g., by title) for automation/IaC. Keywords: terraform graylog provider, graylog terraform, terraform graylog, graylog automation, Graylog operation automation.
 ---
