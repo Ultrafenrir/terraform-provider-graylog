@@ -1711,13 +1711,15 @@ type IndexSet struct {
 	RotationStrategy  string `json:"-"`
 	RetentionStrategy string `json:"-"`
 	// Full strategy support (preferred for Graylog 5.x+)
-	RotationStrategyClass    string         `json:"rotation_strategy_class,omitempty"`
-	RotationStrategyConfig   map[string]any `json:"rotation_strategy,omitempty"`
-	RetentionStrategyClass   string         `json:"retention_strategy_class,omitempty"`
-	RetentionStrategyConfig  map[string]any `json:"retention_strategy,omitempty"`
-	IndexAnalyzer            string         `json:"index_analyzer,omitempty"`
-	FieldTypeRefreshInterval int            `json:"field_type_refresh_interval,omitempty"`
-	Default                  bool           `json:"default,omitempty"`
+	RotationStrategyClass   string         `json:"rotation_strategy_class,omitempty"`
+	RotationStrategyConfig  map[string]any `json:"rotation_strategy,omitempty"`
+	RetentionStrategyClass  string         `json:"retention_strategy_class,omitempty"`
+	RetentionStrategyConfig map[string]any `json:"retention_strategy,omitempty"`
+	// nil preserves the binding on update; a pointer to an empty string detaches.
+	FieldTypeProfile         *string `json:"field_type_profile,omitempty"`
+	IndexAnalyzer            string  `json:"index_analyzer,omitempty"`
+	FieldTypeRefreshInterval int     `json:"field_type_refresh_interval,omitempty"`
+	Default                  bool    `json:"default,omitempty"`
 	// Optimization-related settings required by Graylog 7.x
 	IndexOptimizationMaxNumSegments int  `json:"index_optimization_max_num_segments,omitempty"`
 	IndexOptimizationDisabled       bool `json:"index_optimization_disabled"` // Required by Graylog 7.x, removed omitempty
@@ -1755,6 +1757,9 @@ func (c *Client) ListIndexSets() ([]IndexSet, error) {
 }
 
 func (c *Client) CreateIndexSet(is *IndexSet) (*IndexSet, error) {
+	if c.APIVersion == APIV5 && is.FieldTypeProfile != nil {
+		return nil, fmt.Errorf("index set field type profiles require Graylog 6 or later")
+	}
 	// Some Graylog/OpenSearch setups require a non-null index analyzer. Use a safe default
 	// if not provided explicitly to keep compatibility across Graylog v5/v6/v7.
 	if is.IndexAnalyzer == "" {
@@ -1930,6 +1935,9 @@ func (c *Client) CreateIndexSet(is *IndexSet) (*IndexSet, error) {
 		}
 	}
 
+	if is.FieldTypeProfile != nil && *is.FieldTypeProfile != "" {
+		body.(map[string]any)["field_type_profile"] = *is.FieldTypeProfile
+	}
 	resp, err := c.doRequest("POST", path, body)
 	if err != nil {
 		return nil, err
@@ -2021,6 +2029,9 @@ func (c *Client) WaitForIndexSetReady(id string, interval time.Duration) error {
 }
 
 func (c *Client) UpdateIndexSet(id string, is *IndexSet) (*IndexSet, error) {
+	if c.APIVersion == APIV5 && is.FieldTypeProfile != nil {
+		return nil, fmt.Errorf("index set field type profiles require Graylog 6 or later")
+	}
 	// Graylog API для index sets требует PUT с полным телом объекта
 	// Сначала получаем текущее состояние, затем обновляем нужные поля
 	path := fmt.Sprintf("/api/system/indices/index_sets/%s", id)
@@ -2045,6 +2056,10 @@ func (c *Client) UpdateIndexSet(id string, is *IndexSet) (*IndexSet, error) {
 	current.IndexPrefix = is.IndexPrefix
 	current.Shards = is.Shards
 	current.Replicas = is.Replicas
+
+	if is.FieldTypeProfile != nil {
+		current.FieldTypeProfile = is.FieldTypeProfile
+	}
 
 	// Обновляем стратегии если они заданы
 	if is.RotationStrategyClass != "" {
@@ -2120,7 +2135,20 @@ func (c *Client) UpdateIndexSet(id string, is *IndexSet) (*IndexSet, error) {
 
 	// Формируем полное тело запроса со всеми полями
 	// Важно: используем текущий объект целиком для PUT
-	resp, err := c.doRequest("PUT", path, current)
+	var body any = current
+	if current.FieldTypeProfile != nil && *current.FieldTypeProfile == "" {
+		raw, err := json.Marshal(current)
+		if err != nil {
+			return nil, err
+		}
+		var document map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &document); err != nil {
+			return nil, err
+		}
+		document["field_type_profile"] = json.RawMessage("null")
+		body = document
+	}
+	resp, err := c.doRequest("PUT", path, body)
 	if err != nil {
 		return nil, err
 	}

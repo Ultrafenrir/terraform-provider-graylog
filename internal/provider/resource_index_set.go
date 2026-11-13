@@ -39,6 +39,7 @@ type indexSetModel struct {
 	IndexOptDisabled types.Bool     `tfsdk:"index_optimization_disabled"`
 	Rotation         *strategyModel `tfsdk:"rotation"`
 	Retention        *strategyModel `tfsdk:"retention"`
+	FieldTypeProfile types.String   `tfsdk:"field_type_profile"`
 	Default          types.Bool     `tfsdk:"default"`
 	Timeouts         timeouts.Value `tfsdk:"timeouts"`
 }
@@ -150,6 +151,11 @@ func (r *indexSetResource) Schema(ctx context.Context, _ resource.SchemaRequest,
 				PlanModifiers: []planmodifier.Bool{
 					boolplanmodifier.UseStateForUnknown(),
 				},
+			},
+			"field_type_profile": schema.StringAttribute{
+				Optional:    true,
+				Description: "Field type profile ID. Omit to preserve the server binding; set an empty string to detach. Changes apply to future indices; the provider does not rotate existing indices.",
+				Validators:  []validator.String{stringvalidator.RegexMatches(regexp.MustCompile(`^([0-9a-fA-F]{24})?$`), "must be a 24-character Mongo ObjectID or an empty string to detach")},
 			},
 			"timeouts": timeouts.Attributes(ctx, timeouts.Opts{Create: true, Update: true, Delete: true}),
 		},
@@ -298,6 +304,7 @@ func (r *indexSetResource) Create(ctx context.Context, req resource.CreateReques
 		RotationStrategyConfig:          mapFromStringMap(ctx, data.Rotation),
 		RetentionStrategyClass:          getStrategyClass(data.Retention),
 		RetentionStrategyConfig:         mapFromStringMap(ctx, data.Retention),
+		FieldTypeProfile:                indexSetProfileBinding(data.FieldTypeProfile),
 		Default:                         data.Default.ValueBool(),
 	})
 	if err != nil {
@@ -475,6 +482,7 @@ func (r *indexSetResource) Update(ctx context.Context, req resource.UpdateReques
 		RotationStrategyConfig:          mapFromStringMap(ctx, plan.Rotation),
 		RetentionStrategyClass:          getStrategyClass(plan.Retention),
 		RetentionStrategyConfig:         mapFromStringMap(ctx, plan.Retention),
+		FieldTypeProfile:                indexSetProfileBinding(plan.FieldTypeProfile),
 		Default:                         plan.Default.ValueBool(),
 	})
 	if err != nil {
@@ -578,6 +586,10 @@ func (r *indexSetResource) ImportState(ctx context.Context, req resource.ImportS
 
 	// On import, always materialize rotation/retention blocks if present in API
 	// (don't apply the "had in prior state" logic used in Read)
+
+	if is.FieldTypeProfile != nil {
+		data.FieldTypeProfile = types.StringValue(*is.FieldTypeProfile)
+	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
@@ -701,6 +713,23 @@ func applyIndexSetReadState(ctx context.Context, data *indexSetModel, is *client
 		}
 	}
 	data.Default = types.BoolValue(is.Default)
+	// An omitted binding is unmanaged. Managed bindings must track both switches
+	// and external detachments so refresh can detect drift.
+	if !data.FieldTypeProfile.IsNull() {
+		profile := ""
+		if is.FieldTypeProfile != nil {
+			profile = *is.FieldTypeProfile
+		}
+		data.FieldTypeProfile = types.StringValue(profile)
+	}
+}
+
+func indexSetProfileBinding(value types.String) *string {
+	if value.IsNull() || value.IsUnknown() {
+		return nil
+	}
+	profile := value.ValueString()
+	return &profile
 }
 
 // validateIndexSet performs basic checks for key fields.

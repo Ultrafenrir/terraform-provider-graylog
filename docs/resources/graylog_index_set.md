@@ -111,6 +111,20 @@ resource "graylog_index_set" "rotate_time_size_optimizing" {
 }
 ```
 
+## Field Type Profiles
+
+Use `field_type_profile = graylog_index_set_field_type_profile.example.id` to attach
+or switch a reusable [field type profile](graylog_index_set_field_type_profile.md).
+Set `field_type_profile = ""` to detach. Omit the attribute (or set it to `null`)
+to leave the existing server binding unmanaged; unrelated updates and removing
+the attribute preserve that binding. Import adopts an existing binding.
+
+Changes affect future indices. The provider does not rotate indices after a
+profile or binding update. Rotate separately in Graylog when immediate mapping
+changes are needed. Deleting a profile detaches it from every index set, including
+sets outside Terraform. This feature is verified on Graylog 7.2.2 and is not
+available on Graylog 5.
+
 ## Argument Reference
 
 An index set holds real data. **Only `index_prefix` (renaming) forces recreation.** Every other
@@ -126,6 +140,7 @@ field is a safe, in-place update — none of them destroy or replace an existing
 - `index_optimization_max_num_segments` (Number, Optional) — Max number of segments for index optimization (>=1, defaults to 1). Safe to change in place.
 - `index_optimization_disabled` (Boolean, Optional) — Disable index optimization (defaults to false). Safe to change in place.
 - `default` (Boolean, Optional) — Whether this is the default index set. Safe to change in place. Note: this is sent as a plain field on the create/update body; some Graylog versions may require a dedicated "set default" API call to actually change which index set is default — verify against your server before relying on this to switch defaults.
+- `field_type_profile` (String, Optional) — Profile ObjectID to attach, `""` to detach, or omitted/`null` to preserve the unmanaged binding. No index rotation is performed.
 - `timeouts` (Block, Optional) — Customize create/update/delete timeouts.
 
 ### rotation (Block) — Graylog 5+
