@@ -1,7 +1,9 @@
 services:
   mongo:
-    image: mongo:${MONGO_TAG:-7.0}
+    image: mongo:${MONGO_TAG:-8.3}
     restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db
     healthcheck:
       test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
       interval: 10s
@@ -15,7 +17,7 @@ services:
     build:
       context: ./compose/opensearch
       args:
-        OPENSEARCH_TAG: ${OPENSEARCH_TAG:-2.17.1}
+        OPENSEARCH_TAG: ${OPENSEARCH_TAG:-3.7.0}
     environment:
       - discovery.type=single-node
       - plugins.security.disabled=true
@@ -30,6 +32,7 @@ services:
     ports:
       - "9200:9200"
     volumes:
+      - opensearch_data:/usr/share/opensearch/data
       - ./compose/os_snapshots:/usr/share/opensearch/snapshots
     healthcheck:
       test: ["CMD-SHELL", "curl -s http://localhost:9200 >/dev/null"]
@@ -38,7 +41,7 @@ services:
       retries: 20
 
   graylog:
-    image: graylog/graylog:${GRAYLOG_VERSION:-6.3.15}
+    image: graylog/graylog:${GRAYLOG_VERSION:-7.2.2}
     depends_on:
       mongo:
         condition: service_started
@@ -60,6 +63,8 @@ services:
       - "9000:9000"   # Web UI + REST API (/api)
       - "12201:12201" # GELF UDP
       - "12201:12201/udp"
+    volumes:
+      - graylog_data:/usr/share/graylog/data
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:9000/api/system | grep -qE '^(200|401)$'"]
@@ -97,5 +102,8 @@ services:
       - "1389:389"
 
 volumes:
+  mongo_data:
+  opensearch_data:
+  graylog_data:
   os_snapshots:
   seaweedfs_data:

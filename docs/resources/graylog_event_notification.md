@@ -7,9 +7,11 @@ description: |-
 
 # graylog_event_notification (Resource)
 
-Manages a Graylog Event Notification. Part of the Graylog Terraform Provider for Graylog automation. Supports Graylog v5, v6, and v7.
+Manages a Graylog Event Notification. Part of the Graylog Terraform Provider for Graylog automation. Supports Graylog v6 and v7.
 
-> Capability note: Event Notification availability depends on the Graylog image and version. If the API is unavailable, create and update fail early with a clear error. See the compatibility table in the provider overview.
+> Version requirement: Graylog 5.x uses an incompatible notification payload.
+> Create and update therefore return an explicit diagnostic before sending a
+> notification request. Upgrade to Graylog 6 or newer to use this resource.
 
 ## Example Usage
 

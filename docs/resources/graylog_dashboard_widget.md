@@ -7,7 +7,15 @@ description: |-
 
 # graylog_dashboard_widget (Resource)
 
-Manages a widget on a classic Graylog dashboard. Part of the Graylog Terraform Provider for Graylog automation. Supports Graylog v5, v6, and v7.
+> **Deprecated.** This resource uses the legacy classic-dashboard widget API,
+> which is unavailable in supported Graylog OSS releases. Existing state
+> remains readable for compatibility. Do not use this resource for new
+> configurations; modern dashboard widgets are stored in Views.
+
+Manages a widget through Graylog's legacy classic-dashboard widget API. Current
+Graylog 5.2, 6.x, and 7.x OSS images used by this repository do not expose that
+API, so this resource cannot be used with those images. Modern dashboard
+widgets are stored in Views state and need a separate Views-based resource.
 
 Note: This resource targets classic dashboards (not Views). If you need Views widgets, consider opening an issue for `views` support.
 

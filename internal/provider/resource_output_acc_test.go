@@ -45,6 +45,34 @@ resource "graylog_output" "gelf" {
 				),
 			},
 			{
+				Config: testAccProviderConfig() + `
+data "graylog_index_set_default" "this" {}
+
+resource "graylog_stream" "s" {
+  title        = "acc-out-stream"
+  description  = "Acceptance Output Stream"
+  index_set_id = data.graylog_index_set_default.this.id
+  rule {
+    field = "source"
+    type  = 1
+    value = "acc"
+  }
+}
+
+resource "graylog_output" "gelf" {
+  title = "to-local-gelf-updated"
+  type  = "org.graylog2.outputs.GelfOutput"
+  configuration = jsonencode({ hostname = "127.0.0.1", port = 12202 })
+}
+`,
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr("graylog_output.gelf", "title", "to-local-gelf-updated"),
+					testAccCheckLiveResourceFields("graylog_output.gelf", "output", map[string]any{
+						"title": "to-local-gelf-updated", "configuration": map[string]any{"hostname": "127.0.0.1", "port": float64(12202)},
+					}),
+				),
+			},
+			{
 				ResourceName:            "graylog_output.gelf",
 				ImportState:             true,
 				ImportStateVerify:       true,

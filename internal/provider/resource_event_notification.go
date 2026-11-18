@@ -8,6 +8,7 @@ import (
 
 	"github.com/Ultrafenrir/terraform-provider-graylog/internal/client"
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -36,7 +37,7 @@ func (r *eventNotificationResource) Metadata(_ context.Context, _ resource.Metad
 func (r *eventNotificationResource) Schema(ctx context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		Version:     1,
-		Description: "Manages Graylog Event Notification (email/http/slack/pagerduty).",
+		Description: "Manages a Graylog Event Notification (email/http/slack/pagerduty). Requires Graylog 6 or newer.",
 		Attributes: map[string]schema.Attribute{
 			"id":          schema.StringAttribute{Computed: true, Description: "Notification ID", PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
 			"title":       schema.StringAttribute{Required: true, Description: "Title"},
@@ -46,6 +47,17 @@ func (r *eventNotificationResource) Schema(ctx context.Context, _ resource.Schem
 			"timeouts":    timeouts.Attributes(ctx, timeouts.Opts{Create: true, Update: true, Delete: true}),
 		},
 	}
+}
+
+func ensureEventNotificationVersion(c *client.Client) (diags diag.Diagnostics) {
+	if c.APIVersion != client.APIV5 {
+		return diags
+	}
+	diags.AddError(
+		"Event notifications require Graylog 6 or newer",
+		"graylog_event_notification does not support the incompatible Graylog 5.x notification payload. Upgrade Graylog before managing this resource.",
+	)
+	return diags
 }
 
 func (r *eventNotificationResource) Configure(_ context.Context, req resource.ConfigureRequest, _ *resource.ConfigureResponse) {
@@ -58,6 +70,10 @@ func (r *eventNotificationResource) Configure(_ context.Context, req resource.Co
 func (r *eventNotificationResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var data eventNotificationModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	resp.Diagnostics.Append(ensureEventNotificationVersion(r.client)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -142,6 +158,10 @@ func (r *eventNotificationResource) Update(ctx context.Context, req resource.Upd
 		return
 	}
 	data.ID = state.ID
+	resp.Diagnostics.Append(ensureEventNotificationVersion(r.client)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
 	// Capability gating: Event Notifications must be supported
 	caps := r.client.GetCapabilities()
 	resp.Diagnostics.Append(ensureFeature(ctx, r.client, caps.EventNotifications, "event_notifications", "try Graylog 6/7 or appropriate image")...)

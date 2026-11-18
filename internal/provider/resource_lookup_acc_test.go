@@ -3,6 +3,7 @@
 package provider
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
@@ -12,15 +13,16 @@ import (
 // A complete lookup stack, the shape a GeoIP or CSV enrichment setup takes:
 // the table references the cache and adapter, so Terraform orders creation
 // and destruction correctly without any explicit depends_on.
-func testAccLookupStack(tableTitle string) string {
-	return testAccProviderConfig() + `
+func testAccLookupStack(tableTitle, cacheTitle, adapterTitle, description string, maxSize, checkInterval int) string {
+	return testAccProviderConfig() + fmt.Sprintf(`
 resource "graylog_lookup_cache" "c" {
   name  = "tf-acc-cache"
-  title = "TF acc cache"
+  title = %q
+  description = %q
 
   config_json = jsonencode({
     type                     = "guava_cache"
-    max_size                 = 1000
+    max_size                 = %d
     expire_after_access      = 60
     expire_after_access_unit = "SECONDS"
     expire_after_write       = 0
@@ -29,7 +31,8 @@ resource "graylog_lookup_cache" "c" {
 
 resource "graylog_lookup_adapter" "a" {
   name  = "tf-acc-adapter"
-  title = "TF acc adapter"
+  title = %q
+  description = %q
 
   config_json = jsonencode({
     type                    = "csvfile"
@@ -38,18 +41,18 @@ resource "graylog_lookup_adapter" "a" {
     quotechar               = "\""
     key_column              = "k"
     value_column            = "v"
-    check_interval          = 60
+    check_interval          = %d
     case_insensitive_lookup = false
   })
 }
 
 resource "graylog_lookup_table" "t" {
   name            = "tf-acc-table"
-  title           = "` + tableTitle + `"
+  title           = %q
   cache_id        = graylog_lookup_cache.c.id
   data_adapter_id = graylog_lookup_adapter.a.id
 }
-`
+`, cacheTitle, description, maxSize, adapterTitle, description, checkInterval, tableTitle)
 }
 
 // The regression guard that matters: Graylog enriches a stored cache
@@ -61,7 +64,7 @@ func TestAccLookupStack_basic(t *testing.T) {
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				Config: testAccLookupStack("TF acc table"),
+				Config: testAccLookupStack("TF acc table", "TF acc cache", "TF acc adapter", "Initial lookup component", 1000, 60),
 				Check: resource.ComposeTestCheckFunc(
 					resource.TestCheckResourceAttrSet("graylog_lookup_cache.c", "id"),
 					resource.TestCheckResourceAttrSet("graylog_lookup_adapter.a", "id"),
@@ -83,26 +86,36 @@ func TestAccLookupStack_basic(t *testing.T) {
 			},
 			{
 				// Nothing changed, so nothing may be planned.
-				Config: testAccLookupStack("TF acc table"),
+				Config: testAccLookupStack("TF acc table", "TF acc cache", "TF acc adapter", "Initial lookup component", 1000, 60),
 				ConfigPlanChecks: resource.ConfigPlanChecks{
 					PreApply: []plancheck.PlanCheck{plancheck.ExpectEmptyPlan()},
 				},
 			},
 			{
 				// An in-place update must not disturb the other two.
-				Config: testAccLookupStack("TF acc table renamed"),
+				Config: testAccLookupStack("TF acc table renamed", "TF acc cache updated", "TF acc adapter updated", "Updated lookup component", 2000, 120),
 				ConfigPlanChecks: resource.ConfigPlanChecks{
 					PreApply: []plancheck.PlanCheck{
 						plancheck.ExpectResourceAction("graylog_lookup_table.t", plancheck.ResourceActionUpdate),
-						plancheck.ExpectResourceAction("graylog_lookup_cache.c", plancheck.ResourceActionNoop),
-						plancheck.ExpectResourceAction("graylog_lookup_adapter.a", plancheck.ResourceActionNoop),
+						plancheck.ExpectResourceAction("graylog_lookup_cache.c", plancheck.ResourceActionUpdate),
+						plancheck.ExpectResourceAction("graylog_lookup_adapter.a", plancheck.ResourceActionUpdate),
 					},
 				},
-				Check: resource.TestCheckResourceAttr("graylog_lookup_table.t", "title", "TF acc table renamed"),
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr("graylog_lookup_table.t", "title", "TF acc table renamed"),
+					testAccCheckLiveResourceFields("graylog_lookup_cache.c", "lookup_cache", map[string]any{
+						"title": "TF acc cache updated", "description": "Updated lookup component",
+						"config": map[string]any{"max_size": float64(2000)},
+					}),
+					testAccCheckLiveResourceFields("graylog_lookup_adapter.a", "lookup_adapter", map[string]any{
+						"title": "TF acc adapter updated", "description": "Updated lookup component",
+						"config": map[string]any{"check_interval": float64(120)},
+					}),
+				),
 			},
 			{
 				// Re-plan after the update must be empty too.
-				Config: testAccLookupStack("TF acc table renamed"),
+				Config: testAccLookupStack("TF acc table renamed", "TF acc cache updated", "TF acc adapter updated", "Updated lookup component", 2000, 120),
 				ConfigPlanChecks: resource.ConfigPlanChecks{
 					PreApply: []plancheck.PlanCheck{plancheck.ExpectEmptyPlan()},
 				},

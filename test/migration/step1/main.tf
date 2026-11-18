@@ -13,8 +13,13 @@ variable "url" {
   type = string
 }
 
-variable "token" {
-  type = string
+variable "username" {
+  type    = string
+  default = "admin"
+}
+
+variable "password" {
+  type      = string
   sensitive = true
 }
 
@@ -24,22 +29,22 @@ variable "prefix" {
 }
 
 provider "graylog" {
-  url   = var.url
-  token = var.token
+  url      = var.url
+  username = var.username
+  password = var.password
 }
 
 # Index set (base)
 resource "graylog_index_set" "is" {
-  title              = "${var.prefix}-index"
-  description        = "Terraform migration base index set"
-  index_prefix       = var.prefix
+  title        = "${var.prefix}-index"
+  description  = "Terraform migration base index set"
+  index_prefix = var.prefix
 
   lifecycle {
     ignore_changes = [
       # Ignore computed defaults to avoid drift
       shards,
       field_type_refresh_interval,
-      index_analyzer,
       index_optimization_disabled,
       index_optimization_max_num_segments,
       replicas,

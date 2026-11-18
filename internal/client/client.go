@@ -1717,13 +1717,13 @@ type IndexSet struct {
 	RetentionStrategyConfig map[string]any `json:"retention_strategy,omitempty"`
 	// Preserve the complete polymorphic document on read-modify-write updates,
 	// including tier types this provider does not expose for configuration.
-	DataTiering              json.RawMessage `json:"data_tiering,omitempty"`
-	UseLegacyRotation        *bool           `json:"use_legacy_rotation,omitempty"`
+	DataTiering       json.RawMessage `json:"data_tiering,omitempty"`
+	UseLegacyRotation *bool           `json:"use_legacy_rotation,omitempty"`
 	// nil preserves the binding on update; a pointer to an empty string detaches.
-	FieldTypeProfile         *string          `json:"field_type_profile,omitempty"`
-	IndexAnalyzer            string          `json:"index_analyzer,omitempty"`
-	FieldTypeRefreshInterval int             `json:"field_type_refresh_interval,omitempty"`
-	Default                  bool            `json:"default,omitempty"`
+	FieldTypeProfile         *string `json:"field_type_profile,omitempty"`
+	IndexAnalyzer            string  `json:"index_analyzer,omitempty"`
+	FieldTypeRefreshInterval int     `json:"field_type_refresh_interval,omitempty"`
+	Default                  bool    `json:"default,omitempty"`
 	// Optimization-related settings required by Graylog 7.x
 	IndexOptimizationMaxNumSegments int  `json:"index_optimization_max_num_segments,omitempty"`
 	IndexOptimizationDisabled       bool `json:"index_optimization_disabled"` // Required by Graylog 7.x, removed omitempty

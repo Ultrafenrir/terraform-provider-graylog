@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-ARG OPENSEARCH_TAG=2.17.1
+ARG OPENSEARCH_TAG=3.7.0
 FROM opensearchproject/opensearch:${OPENSEARCH_TAG}
 
 USER root

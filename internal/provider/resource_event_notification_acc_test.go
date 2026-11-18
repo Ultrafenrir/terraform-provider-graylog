@@ -54,6 +54,29 @@ resource "graylog_event_notification" "n" {
 				),
 			},
 			{
+				Config: testAccProviderConfig() + `
+resource "graylog_event_notification" "n" {
+  title       = "acc-email-updated"
+  description = "Updated by acceptance test"
+  type        = "email"
+  config = jsonencode({
+    sender           = "noreply@example.com"
+    subject          = "TF Acc Updated"
+    body_template    = "Updated test"
+    user_recipients  = ["admin"]
+    email_recipients = ["root@example.com"]
+  })
+}
+`,
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr("graylog_event_notification.n", "title", "acc-email-updated"),
+					testAccCheckLiveResourceFields("graylog_event_notification.n", "event_notification", map[string]any{
+						"title": "acc-email-updated", "description": "Updated by acceptance test",
+						"config": map[string]any{"subject": "TF Acc Updated", "body_template": "Updated test"},
+					}),
+				),
+			},
+			{
 				ResourceName:      "graylog_event_notification.n",
 				ImportState:       true,
 				ImportStateVerify: true,

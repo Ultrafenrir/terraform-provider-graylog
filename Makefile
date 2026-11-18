@@ -1,15 +1,22 @@
 PLUGIN=terraform-provider-graylog
 VERSION=0.3.4
-# Latest stable patch releases for every supported Graylog major line.
+# Latest stable patch releases for every Graylog minor line covered by the
+# compatibility suite. Older, EOL lines remain here intentionally so provider
+# regressions are detected for existing installations.
 GRAYLOG_5_VERSION ?= 5.2.12
 GRAYLOG_6_0_VERSION ?= 6.0.14
 GRAYLOG_6_1_VERSION ?= 6.1.16
 GRAYLOG_6_2_VERSION ?= 6.2.14
 GRAYLOG_6_VERSION ?= 6.3.15
-GRAYLOG_7_0_VERSION ?= 7.0.13
-GRAYLOG_7_VERSION ?= 7.1.9
-GRAYLOG_TEST_VERSIONS ?= $(GRAYLOG_5_VERSION) $(GRAYLOG_6_VERSION) $(GRAYLOG_7_VERSION)
-GRAYLOG_VERSION ?= $(GRAYLOG_6_VERSION)
+GRAYLOG_7_0_VERSION ?= 7.0.16
+GRAYLOG_7_1_VERSION ?= 7.1.12
+GRAYLOG_7_VERSION ?= 7.2.2
+# Release support ended for 7.0 and all older lines by November 2026. Keep
+# those versions in a separately named regression matrix for existing users.
+GRAYLOG_PRODUCTION_TEST_VERSIONS ?= $(GRAYLOG_7_1_VERSION) $(GRAYLOG_7_VERSION)
+GRAYLOG_EOL_REGRESSION_VERSIONS ?= $(GRAYLOG_5_VERSION) $(GRAYLOG_6_0_VERSION) $(GRAYLOG_6_1_VERSION) $(GRAYLOG_6_2_VERSION) $(GRAYLOG_6_VERSION) $(GRAYLOG_7_0_VERSION)
+GRAYLOG_TEST_VERSIONS ?= $(GRAYLOG_PRODUCTION_TEST_VERSIONS) $(GRAYLOG_EOL_REGRESSION_VERSIONS)
+GRAYLOG_VERSION ?= $(GRAYLOG_7_VERSION)
 COMPOSE_FILE := $(CURDIR)/docker-compose.yml
 COMPOSE_PROJECT_NAME ?= tf-graylog
 
@@ -29,8 +36,8 @@ OS ?= $(shell uname -s | tr '[:upper:]' '[:lower:]')
 ARCH ?= $(shell uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/')
 
 .PHONY: default deps deps-fresh fmt lint test test-unit test-acc build build-quick build-all clean release help \
-    graylog-up graylog-up-graylog graylog-down graylog-stop graylog-logs graylog-wait graylog-ps test-integration test-integration-one test-integration-all \
-    test-acc-integration test-acc-one test-acc-all prepare-dev-provider test-migration graylog-upgrade-seq test-pre-release
+    graylog-up graylog-up-graylog graylog-down graylog-stop graylog-logs graylog-wait graylog-ps test-integration test-integration-one test-integration-production test-integration-regression test-integration-all \
+    test-acc-integration test-acc-one test-acc-production test-acc-regression test-acc-all prepare-dev-provider test-migration test-data-upgrade graylog-upgrade-seq test-pre-release
 
 default: build-quick
 
@@ -44,7 +51,9 @@ help:
 	@echo "  make test-acc     - Run acceptance tests (requires Graylog)"
 	@echo "  make test-integration - Start Graylog (docker-compose) and run integration tests (vars: PKG, RUN, TIMEOUT, GRAYLOG_VERSION)"
 	@echo "  make test         - Run tests: unit by default; with INTEGRATION=1 — integration"
-	@echo "  make test-pre-release - Run ALL tests before release (unit + integration + acceptance for GL 5/6/7)"
+	@echo "  make test-pre-release - Run all production, EOL regression, and migration tests"
+	@echo "  make test-acc-production - Run acceptance tests on release-supported Graylog versions"
+	@echo "  make test-acc-regression - Run acceptance tests on EOL compatibility versions"
 	@echo "  make build-quick  - Fast build without dependency checks"
 	@echo "  make build        - Full build with dependencies"
 	@echo "  make build-all    - Build for all platforms"
@@ -52,6 +61,7 @@ help:
 	@echo "  make release      - Create release archive"
 	@echo "  make graylog-stop - Stop Graylog without removing volumes (for in-place upgrades)"
 	@echo "  make test-migration - Run Terraform state migration test 5→6→7 with shared state"
+	@echo "  make test-data-upgrade - Opt-in persistent MongoDB/OpenSearch major-upgrade test"
 	@echo "  make prepare-dev-provider - Build local provider and setup Terraform dev overrides"
 
 deps:
@@ -98,7 +108,7 @@ test-unit:
 
 test-acc:
 	@echo "Running acceptance tests (requires a running Graylog)..."
-	TF_ACC=1 go test -v -tags=acceptance -run "^TestAcc" ./... -timeout 30m
+	TF_ACC=1 go test -count=1 -v -tags=acceptance -run "$(if $(RUN),$(RUN),^TestAcc)" ./... -timeout 30m
 
 # ---------- Acceptance tests with docker-compose (like integration) ----------
 # Run acceptance tests against a real Graylog started by docker-compose
@@ -117,8 +127,10 @@ test-acc-integration:
 	export ENABLE_LDAP_ACC="$${ENABLE_LDAP_ACC:-1}"; \
 	TF_PATH=$$(command -v terraform || true); \
 	export TF_ACC_TERRAFORM_PATH="$${TF_ACC_TERRAFORM_PATH:-$$TF_PATH}"; \
-	TF_ACC=1 go test -v -tags=acceptance -run "^TestAcc" -timeout $(TIMEOUT) ./internal/provider; \
+	set +e; \
+	TF_ACC=1 go test -count=1 -v -tags=acceptance -run "$(if $(RUN),$(RUN),^TestAcc)" -timeout $(TIMEOUT) ./internal/provider; \
 	status=$$?; \
+	set -e; \
 	$(MAKE) graylog-down; \
 	exit $$status
 
@@ -143,8 +155,9 @@ graylog-up: graylog-clean
 	  elif docker-compose version >/dev/null 2>&1; then COMPOSE_BIN="docker-compose"; COMPOSE_SUB=""; \
 	  else echo "No docker compose found" >&2; exit 127; fi; \
 	  ver="$(GRAYLOG_VERSION)"; case "$$ver" in 5|5.x) ver="$(GRAYLOG_5_VERSION)";; 6|6.x) ver="$(GRAYLOG_6_VERSION)";; 7|7.x) ver="$(GRAYLOG_7_VERSION)";; esac; \
-	  mongo="$${MONGO_TAG:-7.0}"; \
-	  os="$${OPENSEARCH_TAG:-2.17.1}"; \
+	  mongo="$${MONGO_TAG:-}"; os="$${OPENSEARCH_TAG:-}"; \
+	  if [ -z "$$mongo" ]; then case "$$ver" in 5.*) mongo=6.0;; 6.0.*|6.1.*) mongo=7.0;; 6.2.*|6.3.*|7.0.*|7.1.*) mongo=8.2;; 7.2.*) mongo=8.3;; *) mongo=8.3;; esac; fi; \
+	  if [ -z "$$os" ]; then case "$$ver" in 5.*) os=2.13.0;; 6.0.*|6.1.*) os=2.15.0;; 6.2.*|6.3.*|7.0.*|7.1.*) os=2.19.6;; 7.2.*) os=3.7.0;; *) os=3.7.0;; esac; fi; \
 	  echo Using MongoDB $$mongo and OpenSearch $$os for Graylog $$ver with compose file "$(COMPOSE_FILE)"; \
 	  echo "Using $$COMPOSE_BIN $$COMPOSE_SUB for compose (up)"; \
 	  mkdir -p ./compose/os_snapshots; \
@@ -158,14 +171,20 @@ test-acc-one:
 	@echo "GRAYLOG_VERSION=$(GRAYLOG_VERSION)"
 	$(MAKE) GRAYLOG_VERSION=$(GRAYLOG_VERSION) test-acc-integration
 
-# Run acceptance tests sequentially for Graylog 5, 6, and 7
+test-acc-production:
+	@$(MAKE) GRAYLOG_TEST_VERSIONS="$(GRAYLOG_PRODUCTION_TEST_VERSIONS)" test-acc-all
+
+test-acc-regression:
+	@$(MAKE) GRAYLOG_TEST_VERSIONS="$(GRAYLOG_EOL_REGRESSION_VERSIONS)" test-acc-all
+
+# Run acceptance tests sequentially for every version in the compatibility matrix
 test-acc-all:
 	@set -e; \
 	for ver in $(GRAYLOG_TEST_VERSIONS); do \
 	  echo "==== Running acceptance tests for Graylog $$ver ===="; \
 	  $(MAKE) GRAYLOG_VERSION=$$ver test-acc-one; \
 	done; \
-	echo "Acceptance tests passed for Graylog 5.x, 6.x and 7.x"
+	echo "Acceptance tests passed for all configured Graylog versions"
 
 test: lint
 	@set -e; \
@@ -188,8 +207,9 @@ graylog-up-graylog:
 	  elif docker-compose version >/dev/null 2>&1; then COMPOSE_BIN="docker-compose"; COMPOSE_SUB=""; \
 	  else echo "No docker compose found" >&2; exit 127; fi; \
 	  ver="$(GRAYLOG_VERSION)"; case "$$ver" in 5|5.x) ver="$(GRAYLOG_5_VERSION)";; 6|6.x) ver="$(GRAYLOG_6_VERSION)";; 7|7.x) ver="$(GRAYLOG_7_VERSION)";; esac; \
-	  mongo="$${MONGO_TAG:-7.0}"; \
-	  os="$${OPENSEARCH_TAG:-2.17.1}"; \
+	  mongo="$${MONGO_TAG:-}"; os="$${OPENSEARCH_TAG:-}"; \
+	  if [ -z "$$mongo" ]; then case "$$ver" in 5.*) mongo=6.0;; 6.0.*|6.1.*) mongo=7.0;; 6.2.*|6.3.*|7.0.*|7.1.*) mongo=8.2;; 7.2.*) mongo=8.3;; *) mongo=8.3;; esac; fi; \
+	  if [ -z "$$os" ]; then case "$$ver" in 5.*) os=2.13.0;; 6.0.*|6.1.*) os=2.15.0;; 6.2.*|6.3.*|7.0.*|7.1.*) os=2.19.6;; 7.2.*) os=3.7.0;; *) os=3.7.0;; esac; fi; \
 	  echo Using MongoDB $$mongo and OpenSearch $$os; \
 	  echo "Using $$COMPOSE_BIN $$COMPOSE_SUB for compose (recreate graylog)"; \
 	  MONGO_TAG="$$mongo" OPENSEARCH_TAG="$$os" GRAYLOG_VERSION="$$ver" $$COMPOSE_BIN $$COMPOSE_SUB -f "$(COMPOSE_FILE)" up -d --no-deps --force-recreate graylog; \
@@ -282,14 +302,20 @@ test-integration-one:
 	@echo "GRAYLOG_VERSION=$(GRAYLOG_VERSION)"
 	$(MAKE) GRAYLOG_VERSION=$(GRAYLOG_VERSION) test-integration
 
-# Run integration tests sequentially for Graylog 5, 6, and 7
+test-integration-production:
+	@$(MAKE) GRAYLOG_TEST_VERSIONS="$(GRAYLOG_PRODUCTION_TEST_VERSIONS)" test-integration-all
+
+test-integration-regression:
+	@$(MAKE) GRAYLOG_TEST_VERSIONS="$(GRAYLOG_EOL_REGRESSION_VERSIONS)" test-integration-all
+
+# Run integration tests sequentially for every version in the compatibility matrix
 test-integration-all:
 	@set -e; \
 	for ver in $(GRAYLOG_TEST_VERSIONS); do \
 	  echo "==== Running integration tests for Graylog $$ver ===="; \
 	  $(MAKE) GRAYLOG_VERSION=$$ver test-integration-one; \
 	done; \
-	echo "Integration tests passed for Graylog 5.x, 6.x and 7.x"
+	echo "Integration tests passed for all configured Graylog versions"
 
 build-quick:
 	@echo "Fast build $(PLUGIN) for $(OS)/$(ARCH)..."
@@ -335,17 +361,21 @@ prepare-dev-provider:
 test-migration:
 	@echo "Preparing dev provider and Terraform CLI configuration..."
 	@$(MAKE) graylog-down >/dev/null || true
-	@$(MAKE) deps-fresh >/dev/null
+	@$(MAKE) deps >/dev/null
 	@$(MAKE) prepare-dev-provider >/dev/null
 	@rm -f test/migration/shared/terraform.tfstate test/migration/shared/terraform.tfstate.backup || true
+	@# Keep one transitional dependency pair alive while only Graylog is recreated.
+	@# Per-version auto-selection cannot replace already-running --no-deps services.
 	@bash -lc 'set -euo pipefail; \
-	  GL_BASIC=$$(printf "admin:admin" | base64); \
+	  export MONGO_TAG="$${MONGO_TAG:-7.0}"; \
+	  export OPENSEARCH_TAG="$${OPENSEARCH_TAG:-2.17.1}"; \
 	  TF_VAR_url="$${URL:-http://127.0.0.1:9000/api}"; \
-	  TF_VAR_token="$${TOKEN:-$$GL_BASIC}"; \
+	  TF_VAR_username="$${GRAYLOG_USERNAME:-admin}"; \
+	  TF_VAR_password="$${GRAYLOG_PASSWORD:-admin}"; \
 	  SUFFIX="$${SUFFIX:-$$(date +%s)}"; \
 	  TF_VAR_prefix="tfm_$$SUFFIX"; \
 	  TF_CLI_CONFIG_FILE="$(CURDIR)/build/terraformrc"; \
-	  export TF_VAR_url TF_VAR_token TF_VAR_prefix TF_CLI_CONFIG_FILE; \
+	  export TF_VAR_url TF_VAR_username TF_VAR_password TF_VAR_prefix TF_CLI_CONFIG_FILE; \
 	  mkdir -p test/migration/shared; \
 	  echo "==== Step 1: Graylog 5.x ===="; \
 	  $(MAKE) GRAYLOG_VERSION=$(GRAYLOG_5_VERSION) graylog-up; \
@@ -363,7 +393,7 @@ test-migration:
 	  bash test/migration/apply-no-destroy.sh test/migration/step2 step2; \
 	  set +e; terraform -chdir=test/migration/step2 plan -detailed-exitcode; code=$$?; set -e; \
 	  if [ "$$code" != "0" ]; then echo "Step2 plan returned $$code (expected 0)"; $(MAKE) graylog-down; exit 1; fi; \
-	  for ver in $(GRAYLOG_7_0_VERSION) $(GRAYLOG_7_VERSION); do \
+	  for ver in $(GRAYLOG_7_0_VERSION) $(GRAYLOG_7_1_VERSION) $(GRAYLOG_7_VERSION); do \
 	    echo "==== Upgrade to Graylog $$ver ===="; \
 	    $(MAKE) GRAYLOG_VERSION=$$ver graylog-up-graylog; \
 	    $(MAKE) graylog-wait; \
@@ -376,25 +406,32 @@ test-migration:
 	  $(MAKE) graylog-down >/dev/null; \
 	  echo "Migration test passed without resource destruction (5→6→7)"'
 
+# This deliberately stays outside the default PR suite. It upgrades real
+# persistent MongoDB and OpenSearch volumes and is exposed through a separate
+# manual CI workflow.
+test-data-upgrade:
+	bash test/upgrade/persistent-data-upgrade.sh
+
 # ---------- Sequential Graylog upgrade (manual diagnostics) ----------
 # Follows Graylog's supported incremental minor-version upgrade path, using
 # the latest stable patch release from every minor line.
-# Uses a single MongoDB version (default MONGO_TAG=7.0) and preserves volumes between upgrades
+# Uses one transitional MongoDB/OpenSearch pair and preserves it between upgrades.
 graylog-upgrade-seq:
 	@bash -lc 'set -euo pipefail; \
 	  export MONGO_TAG="$${MONGO_TAG:-7.0}"; \
-	  echo "[1/7] Starting Graylog $(GRAYLOG_5_VERSION) with Mongo $$MONGO_TAG"; \
+	  export OPENSEARCH_TAG="$${OPENSEARCH_TAG:-2.17.1}"; \
+	  echo "[1/8] Starting Graylog $(GRAYLOG_5_VERSION) with Mongo $$MONGO_TAG"; \
 	  $(MAKE) GRAYLOG_VERSION=$(GRAYLOG_5_VERSION) graylog-up >/dev/null; \
 	  { $(MAKE) graylog-wait >/dev/null && echo "Graylog $(GRAYLOG_5_VERSION) is up"; } || { echo "Graylog $(GRAYLOG_5_VERSION) failed to become ready"; $(MAKE) graylog-ps; $(MAKE) graylog-logs; exit 1; }; \
 	  step=2; \
-	  for ver in $(GRAYLOG_6_0_VERSION) $(GRAYLOG_6_1_VERSION) $(GRAYLOG_6_2_VERSION) $(GRAYLOG_6_VERSION) $(GRAYLOG_7_0_VERSION) $(GRAYLOG_7_VERSION); do \
-	    echo "[$$step/7] Upgrading to Graylog $$ver (preserving volumes)"; \
+	  for ver in $(GRAYLOG_6_0_VERSION) $(GRAYLOG_6_1_VERSION) $(GRAYLOG_6_2_VERSION) $(GRAYLOG_6_VERSION) $(GRAYLOG_7_0_VERSION) $(GRAYLOG_7_1_VERSION) $(GRAYLOG_7_VERSION); do \
+	    echo "[$$step/8] Upgrading to Graylog $$ver (preserving volumes)"; \
 	    $(MAKE) graylog-stop >/dev/null; \
 	    $(MAKE) GRAYLOG_VERSION=$$ver graylog-up-graylog >/dev/null; \
 	    { $(MAKE) graylog-wait >/dev/null && echo "Graylog $$ver is up"; } || { echo "Graylog $$ver failed to become ready"; $(MAKE) graylog-ps; $(MAKE) graylog-logs; exit 1; }; \
 	    step=$$((step + 1)); \
 	  done; \
-	  echo "Sequential upgrade succeeded ($(GRAYLOG_5_VERSION) → $(GRAYLOG_6_0_VERSION) → $(GRAYLOG_6_1_VERSION) → $(GRAYLOG_6_2_VERSION) → $(GRAYLOG_6_VERSION) → $(GRAYLOG_7_0_VERSION) → $(GRAYLOG_7_VERSION))"'
+	  echo "Sequential upgrade succeeded ($(GRAYLOG_5_VERSION) → $(GRAYLOG_6_0_VERSION) → $(GRAYLOG_6_1_VERSION) → $(GRAYLOG_6_2_VERSION) → $(GRAYLOG_6_VERSION) → $(GRAYLOG_7_0_VERSION) → $(GRAYLOG_7_1_VERSION) → $(GRAYLOG_7_VERSION))"'
 
 # Pre-release validation: run all critical tests
 test-pre-release:
@@ -407,11 +444,11 @@ test-pre-release:
 	@$(MAKE) test-unit || { echo "❌ Unit tests FAILED"; exit 1; }
 	@echo "✅ Unit tests passed"
 	@echo ""
-	@echo "[2/4] Running integration tests for Graylog 5.x, 6.x, 7.x..."
+	@echo "[2/4] Running integration tests for every configured Graylog version..."
 	@$(MAKE) test-integration-all || { echo "❌ Integration tests FAILED"; exit 1; }
 	@echo "✅ Integration tests passed"
 	@echo ""
-	@echo "[3/4] Running acceptance tests for Graylog 5.x, 6.x, 7.x..."
+	@echo "[3/4] Running acceptance tests for every configured Graylog version..."
 	@$(MAKE) test-acc-all || { echo "❌ Acceptance tests FAILED"; exit 1; }
 	@echo "✅ Acceptance tests passed"
 	@echo ""

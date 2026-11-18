@@ -114,8 +114,9 @@ func (r *dashboardResource) Read(ctx context.Context, req resource.ReadRequest, 
 }
 
 func (r *dashboardResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	var data dashboardModel
+	var data, state dashboardModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -141,7 +142,8 @@ func (r *dashboardResource) Update(ctx context.Context, req resource.UpdateReque
 	ctx, cancel := context.WithTimeout(ctx, updateTimeout)
 	defer cancel()
 
-	_, err := r.client.WithContext(ctx).UpdateDashboard(data.ID.ValueString(), &client.Dashboard{
+	id := state.ID.ValueString()
+	_, err := r.client.WithContext(ctx).UpdateDashboard(id, &client.Dashboard{
 		Title:       data.Title.ValueString(),
 		Description: data.Description.ValueString(),
 	})
@@ -149,6 +151,7 @@ func (r *dashboardResource) Update(ctx context.Context, req resource.UpdateReque
 		resp.Diagnostics.AddError("Error updating dashboard", err.Error())
 		return
 	}
+	data.ID = types.StringValue(id)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 

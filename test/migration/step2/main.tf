@@ -12,7 +12,11 @@ terraform {
 variable "url" {
   type = string
 }
-variable "token" {
+variable "username" {
+  type    = string
+  default = "admin"
+}
+variable "password" {
   type      = string
   sensitive = true
 }
@@ -22,8 +26,9 @@ variable "prefix" {
 }
 
 provider "graylog" {
-  url   = var.url
-  token = var.token
+  url      = var.url
+  username = var.username
+  password = var.password
 }
 
 # Existing resources with minimal updates
@@ -36,7 +41,6 @@ resource "graylog_index_set" "is" {
     ignore_changes = [
       shards,
       field_type_refresh_interval,
-      index_analyzer,
       index_optimization_disabled,
       index_optimization_max_num_segments,
       replicas,
@@ -72,7 +76,7 @@ resource "graylog_stream" "s" {
 resource "graylog_pipeline" "p" {
   title       = "${var.prefix}-pipeline"
   description = "Pipeline for migration tests (v6)"
-  source = <<-EOT
+  source      = <<-EOT
     pipeline "${var.prefix}-pipeline"
     stage 0 match all
     end

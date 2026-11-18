@@ -102,7 +102,8 @@ func (r *outputResource) Read(ctx context.Context, req resource.ReadRequest, res
 	if b, err := json.Marshal(o.Configuration); err == nil {
 		data.Configuration = types.StringValue(string(b))
 	}
-	// streams: оставляем как в состоянии (нет простого способа прочитать привязки для данного output)
+	// Keep streams from state because Graylog has no direct endpoint for the
+	// attachments of one output.
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
@@ -121,7 +122,8 @@ func (r *outputResource) Update(ctx context.Context, req resource.UpdateRequest,
 			return
 		}
 	}
-	if _, err := r.client.WithContext(ctx).UpdateOutput(plan.ID.ValueString(), &client.Output{
+	id := state.ID.ValueString()
+	if _, err := r.client.WithContext(ctx).UpdateOutput(id, &client.Output{
 		Title:         plan.Title.ValueString(),
 		Type:          plan.Type.ValueString(),
 		Configuration: cfg,
@@ -147,7 +149,7 @@ func (r *outputResource) Update(ctx context.Context, req resource.UpdateRequest,
 	// detach
 	for id := range oldSet {
 		if _, ok := newSet[id]; !ok {
-			if err := r.client.WithContext(ctx).DetachOutputFromStream(id, plan.ID.ValueString()); err != nil {
+			if err := r.client.WithContext(ctx).DetachOutputFromStream(id, state.ID.ValueString()); err != nil {
 				resp.Diagnostics.AddError("Error detaching output from stream", err.Error())
 				return
 			}
@@ -156,13 +158,14 @@ func (r *outputResource) Update(ctx context.Context, req resource.UpdateRequest,
 	// attach
 	for id := range newSet {
 		if _, ok := oldSet[id]; !ok {
-			if err := r.client.WithContext(ctx).AttachOutputToStream(id, plan.ID.ValueString()); err != nil {
+			if err := r.client.WithContext(ctx).AttachOutputToStream(id, state.ID.ValueString()); err != nil {
 				resp.Diagnostics.AddError("Error attaching output to stream", err.Error())
 				return
 			}
 		}
 	}
 
+	plan.ID = state.ID
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 

@@ -4,6 +4,7 @@ package provider
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
@@ -58,6 +59,27 @@ func discoverClusterConfigDocuments(t *testing.T, n int) ([]string, []string) {
 	return nil, nil
 }
 
+func mutateClusterConfigDocument(raw string) (string, bool) {
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(raw), &doc); err != nil {
+		return "", false
+	}
+	if value, ok := doc["query_time_range_limit"].(string); ok {
+		if value == "PT0S" {
+			doc["query_time_range_limit"] = "PT1S"
+		} else {
+			doc["query_time_range_limit"] = "PT0S"
+		}
+	} else if order, ok := doc["processor_order"].([]any); ok && len(order) > 1 {
+		order[0], order[1] = order[1], order[0]
+		doc["processor_order"] = order
+	} else {
+		return "", false
+	}
+	mutated, err := json.Marshal(doc)
+	return string(mutated), err == nil
+}
+
 func testAccClusterConfig(class, doc string) string {
 	// HCL would read ${...} inside a quoted string as an interpolation.
 	escaped := strings.ReplaceAll(strconv.Quote(doc), "${", "$${")
@@ -77,6 +99,10 @@ func TestAccClusterConfig_basic(t *testing.T) {
 	classes, docs := discoverClusterConfigDocuments(t, 1)
 	class, doc := classes[0], docs[0]
 	config := testAccClusterConfig(class, doc)
+	updatedDoc, ok := mutateClusterConfigDocument(doc)
+	if !ok {
+		t.Skipf("probe class %s has no safely mutable field", class)
+	}
 
 	// Destroy removes the document, which returns the class to the default
 	// compiled into the server. That is the intended semantic and is safe on
@@ -95,8 +121,20 @@ func TestAccClusterConfig_basic(t *testing.T) {
 				),
 			},
 			{
+				Config: testAccClusterConfig(class, updatedDoc),
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{
+						plancheck.ExpectResourceAction("graylog_cluster_config.c", plancheck.ResourceActionUpdate),
+					},
+				},
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr("graylog_cluster_config.c", "config_json", updatedDoc),
+					testAccCheckLiveClusterConfig("graylog_cluster_config.c", updatedDoc),
+				),
+			},
+			{
 				// Re-applying the same configuration must be a no-op.
-				Config: config,
+				Config: testAccClusterConfig(class, updatedDoc),
 				ConfigPlanChecks: resource.ConfigPlanChecks{
 					PreApply: []plancheck.PlanCheck{plancheck.ExpectEmptyPlan()},
 				},

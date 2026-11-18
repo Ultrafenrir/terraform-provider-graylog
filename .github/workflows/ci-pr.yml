@@ -6,8 +6,7 @@ on:
     types: [opened, synchronize, reopened]
   workflow_dispatch: {}
 
-# Отменяем предыдущие запуски этого workflow для одного и того же PR,
-# чтобы не гонять тяжёлые тесты параллельно при частых пушах
+# Cancel superseded runs for the same pull request.
 concurrency:
   group: pr-${{ github.event.pull_request.number }}
   cancel-in-progress: true
@@ -17,13 +16,18 @@ permissions:
 
 jobs:
   acceptance:
-    name: Integration + Acceptance (Graylog ${{ matrix.graylog }})
+    name: Integration + Acceptance (${{ matrix.track }}, Graylog ${{ matrix.graylog }})
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        graylog: [ '5.2.12', '6.3.15', '7.1.9', '7.2.2' ]
+        include:
+          - { graylog: '7.2.2', track: production }
+          - { graylog: '7.1.12', track: production }
+          - { graylog: '7.0.16', track: eol-regression }
+          - { graylog: '6.3.15', track: eol-regression }
+          - { graylog: '5.2.12', track: eol-regression }
     env:
       GRAYLOG_VERSION: ${{ matrix.graylog }}
     steps:

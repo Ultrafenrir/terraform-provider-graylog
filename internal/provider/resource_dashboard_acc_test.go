@@ -47,6 +47,20 @@ resource "graylog_dashboard" "d" {
 				),
 			},
 			{
+				Config: testAccProviderConfig() + `
+resource "graylog_dashboard" "d" {
+  title       = "acc-dashboard-updated"
+  description = "Acceptance dashboard updated"
+}
+`,
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr("graylog_dashboard.d", "title", "acc-dashboard-updated"),
+					testAccCheckLiveResourceFields("graylog_dashboard.d", "dashboard", map[string]any{
+						"title": "acc-dashboard-updated", "description": "Acceptance dashboard updated",
+					}),
+				),
+			},
+			{
 				ResourceName:      "graylog_dashboard.d",
 				ImportState:       true,
 				ImportStateVerify: true,

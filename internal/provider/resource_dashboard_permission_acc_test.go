@@ -67,6 +67,31 @@ resource "graylog_dashboard_permission" "p" {
 				),
 			},
 			{
+				Config: testAccProviderConfig() + `
+resource "graylog_role" "r" {
+  name        = "acc-dashperm-role"
+  description = "Role for dashboard permission acc test"
+  lifecycle { ignore_changes = [permissions] }
+}
+
+resource "graylog_dashboard" "d" {
+  title       = "acc-dashperm-dashboard"
+  description = "Dashboard for permission acc test"
+}
+
+resource "graylog_dashboard_permission" "p" {
+  role_name    = graylog_role.r.name
+  dashboard_id = graylog_dashboard.d.id
+  actions      = ["read"]
+}
+`,
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr("graylog_dashboard_permission.p", "actions.#", "1"),
+					resource.TestCheckResourceAttr("graylog_dashboard_permission.p", "actions.0", "read"),
+					testAccCheckLiveScopedPermissionsExact("graylog_role.r", "graylog_dashboard.d", "dashboards", "read"),
+				),
+			},
+			{
 				ResourceName:      "graylog_dashboard_permission.p",
 				ImportState:       true,
 				ImportStateVerify: true,

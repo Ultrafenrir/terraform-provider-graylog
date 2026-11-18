@@ -4,8 +4,11 @@ package provider
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"os"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/Ultrafenrir/terraform-provider-graylog/internal/client"
@@ -18,6 +21,146 @@ import (
 // ProtoV6 provider factory map for acceptance tests
 var testAccProtoV6ProviderFactories = map[string]func() (tfprotov6.ProviderServer, error){
 	"graylog": providerserver.NewProtocol6WithError(New()),
+}
+
+// testAccCheckLiveResourceFields verifies mutable fields through a separate
+// API client after an update. State-only assertions cannot detect a provider
+// that writes the plan to state without changing Graylog.
+func testAccCheckLiveResourceFields(resourceName, kind string, want map[string]any) resource.TestCheckFunc {
+	return func(state *terraform.State) error {
+		rs, ok := state.RootModule().Resources[resourceName]
+		if !ok || rs.Primary == nil || rs.Primary.ID == "" {
+			return fmt.Errorf("resource %s is missing an ID in Terraform state", resourceName)
+		}
+		c := testAccClient()
+		got := map[string]any{}
+		switch kind {
+		case "alert":
+			v, err := c.GetEventDefinition(rs.Primary.ID)
+			if err != nil {
+				return err
+			}
+			got = map[string]any{"title": v.Title, "description": v.Description, "priority": v.Priority, "alert": v.Alert}
+		case "dashboard":
+			v, err := c.GetDashboard(rs.Primary.ID)
+			if err != nil {
+				return err
+			}
+			got = map[string]any{"title": v.Title, "description": v.Description}
+		case "event_notification":
+			v, err := c.GetEventNotification(rs.Primary.ID)
+			if err != nil {
+				return err
+			}
+			got = map[string]any{"title": v.Title, "description": v.Description, "config": v.Config}
+		case "output":
+			v, err := c.GetOutput(rs.Primary.ID)
+			if err != nil {
+				return err
+			}
+			got = map[string]any{"title": v.Title, "configuration": v.Configuration}
+		case "lookup_cache":
+			v, err := c.GetLookupCache(rs.Primary.ID)
+			if err != nil {
+				return err
+			}
+			var cfg map[string]any
+			if err := json.Unmarshal(v.Config, &cfg); err != nil {
+				return err
+			}
+			got = map[string]any{"name": v.Name, "title": v.Title, "description": v.Description, "config": cfg}
+		case "lookup_adapter":
+			v, err := c.GetLookupAdapter(rs.Primary.ID)
+			if err != nil {
+				return err
+			}
+			var cfg map[string]any
+			if err := json.Unmarshal(v.Config, &cfg); err != nil {
+				return err
+			}
+			got = map[string]any{"name": v.Name, "title": v.Title, "description": v.Description, "config": cfg}
+		default:
+			return fmt.Errorf("unsupported live field check kind %q", kind)
+		}
+
+		for key, expected := range want {
+			actual, exists := got[key]
+			if !exists {
+				return fmt.Errorf("live %s %q has no field %q", kind, rs.Primary.ID, key)
+			}
+			if expectedMap, ok := expected.(map[string]any); ok {
+				actualMap, ok := actual.(map[string]any)
+				if !ok {
+					return fmt.Errorf("live %s field %q is not an object: %#v", kind, key, actual)
+				}
+				for nestedKey, nestedExpected := range expectedMap {
+					if !reflect.DeepEqual(actualMap[nestedKey], nestedExpected) {
+						return fmt.Errorf("live %s field %s.%s = %#v, want %#v", kind, key, nestedKey, actualMap[nestedKey], nestedExpected)
+					}
+				}
+				continue
+			}
+			if !reflect.DeepEqual(actual, expected) {
+				return fmt.Errorf("live %s field %q = %#v, want %#v", kind, key, actual, expected)
+			}
+		}
+		return nil
+	}
+}
+
+func testAccCheckLiveScopedPermissionsExact(roleResource, targetResource, scope string, actions ...string) resource.TestCheckFunc {
+	return func(state *terraform.State) error {
+		roleState := state.RootModule().Resources[roleResource]
+		targetState := state.RootModule().Resources[targetResource]
+		if roleState == nil || roleState.Primary == nil || targetState == nil || targetState.Primary == nil {
+			return fmt.Errorf("missing role %s or target %s from Terraform state", roleResource, targetResource)
+		}
+		role, err := testAccClient().GetRole(roleState.Primary.Attributes["name"])
+		if err != nil {
+			return err
+		}
+		prefix, suffix := scope+":", ":"+targetState.Primary.ID
+		got := map[string]bool{}
+		for _, permission := range role.Permissions {
+			if strings.HasPrefix(permission, prefix) && strings.HasSuffix(permission, suffix) {
+				got[strings.TrimSuffix(strings.TrimPrefix(permission, prefix), suffix)] = true
+			}
+		}
+		if len(got) != len(actions) {
+			return fmt.Errorf("live scoped actions = %v, want %v", got, actions)
+		}
+		for _, action := range actions {
+			if !got[action] {
+				return fmt.Errorf("live scoped actions = %v, missing %q", got, action)
+			}
+		}
+		return nil
+	}
+}
+
+func testAccCheckLiveClusterConfig(resourceName, expected string) resource.TestCheckFunc {
+	return func(state *terraform.State) error {
+		rs := state.RootModule().Resources[resourceName]
+		if rs == nil || rs.Primary == nil {
+			return fmt.Errorf("resource %s is missing", resourceName)
+		}
+		raw, err := testAccClient().GetClusterConfig(rs.Primary.ID)
+		if err != nil {
+			return err
+		}
+		got, err := ProjectAndCanonicalizeJSON(string(raw), expected)
+		if err != nil {
+			return err
+		}
+		want, err := CanonicalizeJSONFromString(expected)
+		if err != nil {
+			return err
+		}
+		if got != want {
+			return fmt.Errorf("live cluster config = %s, want %s", got, want)
+		}
+		return nil
+	}
 }
 
 func testAccPreCheck(t *testing.T) {
@@ -72,6 +215,8 @@ func testAccCheckLiveResourceExists(resourceName, kind string) resource.TestChec
 			_, err = c.GetOutput(id)
 		case "pipeline":
 			_, err = c.GetPipeline(id)
+		case "pipeline_rule":
+			_, err = c.GetPipelineRule(id)
 		case "role":
 			_, err = c.GetRole(id)
 		case "stream":

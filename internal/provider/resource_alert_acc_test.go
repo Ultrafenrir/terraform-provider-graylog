@@ -3,20 +3,13 @@
 package provider
 
 import (
+	"fmt"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"testing"
 )
 
-func TestAccAlert_basic(t *testing.T) {
-	resource.ParallelTest(t, resource.TestCase{
-		PreCheck:                 func() { testAccPreCheck(t) },
-		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
-		Steps: []resource.TestStep{
-			{
-				// Для совместимости GL 5/6/7 не меняем default index set и не создаём
-				// кастомный index set для stream. Создаём stream без index_set_id,
-				// чтобы он использовал системный writable (default) index set.
-				Config: testAccProviderConfig() + `
+func testAccAlertConfig(title, description string, priority int) string {
+	return testAccProviderConfig() + fmt.Sprintf(`
 data "graylog_index_set_default" "this" {}
 
 resource "graylog_stream" "s" {
@@ -32,9 +25,9 @@ resource "graylog_stream" "s" {
 }
 
 resource "graylog_alert" "a" {
-  title       = "acc-alert"
-  description = "Acceptance alert"
-  priority    = 1
+  title       = %q
+  description = %q
+  priority    = %d
   alert       = true
 
   config = jsonencode({
@@ -54,11 +47,32 @@ resource "graylog_alert" "a" {
     series = [{ id = "count", function = "count" }]
   })
 }
-`,
+`, title, description, priority)
+}
+
+func TestAccAlert_basic(t *testing.T) {
+	resource.ParallelTest(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				// Keep the default index set unchanged across Graylog 5, 6, and 7.
+				// Creating the stream without index_set_id makes it use the system
+				// writable index set and avoids cross-version plan drift.
+				Config: testAccAlertConfig("acc-alert", "Acceptance alert", 1),
 				Check: resource.ComposeTestCheckFunc(
 					resource.TestCheckResourceAttrSet("graylog_alert.a", "id"),
 					testAccCheckLiveResourceExists("graylog_alert.a", "event_definition"),
 					resource.TestCheckResourceAttr("graylog_alert.a", "title", "acc-alert"),
+				),
+			},
+			{
+				Config: testAccAlertConfig("acc-alert-updated", "Acceptance alert updated", 2),
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr("graylog_alert.a", "title", "acc-alert-updated"),
+					testAccCheckLiveResourceFields("graylog_alert.a", "alert", map[string]any{
+						"title": "acc-alert-updated", "description": "Acceptance alert updated", "priority": 2, "alert": true,
+					}),
 				),
 			},
 			{

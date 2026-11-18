@@ -2,10 +2,10 @@ name: CI (Push)
 
 on:
   push:
-    branches:
-      - '**'
+    branches-ignore:
+      - main
 
-# Не даём одновременно крутиться нескольким пуш-запускам для одной ветки
+# Do not run superseded pushes for the same branch concurrently.
 concurrency:
   group: push-${{ github.ref }}
   cancel-in-progress: true

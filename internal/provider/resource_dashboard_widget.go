@@ -34,8 +34,10 @@ func (r *dashboardWidgetResource) Metadata(_ context.Context, _ resource.Metadat
 
 func (r *dashboardWidgetResource) Schema(ctx context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Version:     1,
-		Description: "Manages a widget on a classic Graylog dashboard.",
+		Version: 1,
+		DeprecationMessage: "graylog_dashboard_widget uses the legacy classic-dashboard widget API, which is not available " +
+			"in supported Graylog OSS releases. Existing state remains supported, but new configurations should use Views-based dashboards.",
+		Description: "Manages a widget on a classic Graylog dashboard. This resource is deprecated because modern Graylog stores dashboard widgets in Views.",
 		Attributes: map[string]schema.Attribute{
 			"id":            schema.StringAttribute{Computed: true, Description: "Widget ID"},
 			"dashboard_id":  schema.StringAttribute{Required: true, Description: "Dashboard ID"},
@@ -177,7 +179,7 @@ func (r *dashboardWidgetResource) Delete(ctx context.Context, req resource.Delet
 }
 
 func (r *dashboardWidgetResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	// Композитный импорт: {dashboard_id}/{widget_id}
-	// Без парсинга — сохраняем в id, а dashboard_id потребует указания вручную при next plan (ограничение простоты)
+	// Import keeps the widget ID. dashboard_id must be supplied in configuration
+	// before the next plan because the legacy API uses a composite identity.
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }
